@@ -16,7 +16,7 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 | `0006-soundwire-qcom-Copy-DPn-banks-when-the-master-does-not-switch.patch` | Built |
 | `0007-ASoC-codecs-wcd9378-sdca-Do-not-halve-the-TX-host-clock.patch` | Built |
 | `0008-firmware-qcom-scm-Retry-PAS-init-from-TZMem.patch` | Built |
-| `0009-drm-msm-adreno-Skip-the-zap-shader-when-the-kernel-runs-at-EL2.patch` | Built, not used (GPU off) |
+| `0009-drm-msm-adreno-Skip-the-zap-shader-when-the-kernel-runs-at-EL2.patch` | Built (the GPU runs without the zap shader) |
 | `0010-rtc-qcom-glink-Fail-a-set-property-the-firmware-refuses.patch` | Built |
 | `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Built, used with `usbcore.ctrl_retries=3` |
 | `0012-usb-hub-Check-the-port-after-a-reset-request-with-a-transaction-error.patch` | Built (KVM keyboard and mouse work) |
