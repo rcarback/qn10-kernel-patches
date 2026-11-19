@@ -1,0 +1,26 @@
+From 8fba801e8be19248404b210b05db48f3167c05a7 Mon Sep 17 00:00:00 2001
+From: "Richard T. Carback III" <rick.carback@gmail.com>
+Date: Thu, 19 Nov 2026 14:08:05 +0000
+Subject: [PATCH 13/14] dt-bindings: arm: qcom: Add ASUS Ascent QN10
+
+Document the compatible string for the ASUS Ascent QN10, a mini PC based
+on the Qualcomm Glymur platform (Snapdragon X2 Elite, X2E88100).
+---
+ Documentation/devicetree/bindings/arm/qcom.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/qcom.yaml b/Documentation/devicetree/bindings/arm/qcom.yaml
+index 03d3b06bc..3ae33ceea 100644
+--- a/Documentation/devicetree/bindings/arm/qcom.yaml
++++ b/Documentation/devicetree/bindings/arm/qcom.yaml
+@@ -95,6 +95,7 @@ properties:
+ 
+       - items:
+           - enum:
++              - asus,ascent-qn10
+               - asus,zenbook-a14-ux3407na
+               - asus,zenbook-a16-ux3607oa
+               - hp,elitebook-x-g2q
+-- 
+2.47.3
+

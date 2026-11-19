@@ -1,11 +1,20 @@
 #!/bin/sh
-# Run ON THE QN10 as root: sh qn10-install-kernel.sh DIR
-# DIR holds linux-image-7.4.0-rc1-qn10+_*.deb and glymur-asus-ascent-qn10.dtb.
-# Installs the kernel next to the existing 7.3 one (all 7.3 entries stay) and
+# Run ON THE QN10 as root: sh qn10-install-kernel.sh DIR [TAG]
+# DIR holds one linux-image-*.deb and glymur-asus-ascent-qn10.dtb. TAG is the
+# qcom-next tag of the build, for the boot entry title.
+# Installs the kernel next to the existing ones (their entries stay) and
 # makes the new boot entry the default.
 set -eu
 dir=$1
-V=7.4.0-rc1-qn10+
+tag=${2:-}
+deb='' n=0
+for f in "$dir"/linux-image-*.deb; do
+	case $f in *-dbg_*) continue ;; esac
+	[ -f "$f" ] || continue
+	deb=$f n=$((n + 1))
+done
+[ "$n" -eq 1 ] || { echo "error: $dir must hold exactly one linux-image package" >&2; exit 1; }
+V=$(dpkg-deb -f "$deb" Package | sed 's/^linux-image-//')
 esp=/boot/efi
 mid=$(cat /etc/machine-id)
 
@@ -20,11 +29,11 @@ cat /etc/kernel/devicetree /etc/kernel/cmdline
 ls -l /usr/lib/firmware/rtl_nic/rtl8125bp-2.fw* 2>/dev/null ||
 	echo "WARNING: rtl8125bp-2.fw missing; Ethernet may not come up on $V"
 
-dpkg -i "$dir"/linux-image-"$V"_*.deb
+dpkg -i "$deb"
 
 entry=$esp/loader/entries/$mid-$V.conf
 [ -f "$entry" ] || { echo "error: kernel-install made no $entry" >&2; exit 1; }
-sed -i "s/^title .*/title      Debian 13 QN10 kernel $V (qcom-next 7.4-rc1)/" "$entry"
+sed -i "s/^title .*/title      Debian 13 QN10 kernel $V${tag:+ ($tag)}/" "$entry"
 cat "$entry"
 ls -l "$esp/$mid/$V/"
 

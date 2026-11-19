@@ -20,9 +20,12 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 | `0010-rtc-qcom-glink-Fail-a-set-property-the-firmware-refuses.patch` | Built |
 | `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Built, used with `usbcore.ctrl_retries=3` |
 | `0012-usb-hub-Check-the-port-after-a-reset-request-with-a-transaction-error.patch` | Built (KVM keyboard and mouse work) |
+| `0013-dt-bindings-arm-qcom-Add-ASUS-Ascent-QN10.patch` | Built |
+| `0014-arm64-dts-qcom-Add-ASUS-Ascent-QN10.patch` | Built (the DTB matches the one the QN10 boots) |
 
 Each patch is a local test patch. None of them has gone upstream.
-The device tree series has its own repository.
+Patches 0013 and 0014 add the QN10 device tree, so each build compiles
+`glymur-asus-ascent-qn10.dtb` and the kernel package ships it.
 
 ## Workarounds for the keyboard and mouse
 
@@ -54,9 +57,43 @@ tree with `git apply`, then run the script again.
 
 `qn10-native-setup.sh` and `qn10-native-build.sh` build on the QN10 itself.
 
+## Automatic builds
+
+The `auto/` folder builds each new qcom-next tag on the QN10, in a Firecracker
+microVM of the CI runner. A timer runs `qn10-kernel-autobuild.sh` every night.
+If a tag is newer than `KERNEL_TAG` in `/etc/default/qn10-kernel-autobuild`,
+the script does these steps:
+
+1. Starts a microVM with 8 vCPUs, 16 GiB, and a limit of 4 hours, through the
+   runner's executor scripts.
+2. Runs `build-in-vm.sh` in a `debian:trixie` container. That script applies
+   each patch of this repository to the tag with `git apply`. Then it builds
+   the packages with the config of the running kernel.
+3. Copies the packages, the DTB from that build, and `qn10-install-kernel.sh`
+   out to `/var/lib/qn10-kernel-autobuild/out`.
+4. Mails a ready-to-install report, or the stage that failed with the last 40
+   lines of the log.
+
+The job tries each tag once. A stop during setup or clone counts as a network
+fault, so the next run tries again without a mail. The job never installs a
+kernel.
+
+| File | Installs to |
+|------|-------------|
+| `auto/qn10-kernel-autobuild.sh` | `/usr/local/sbin/qn10-kernel-autobuild` |
+| `auto/build-in-vm.sh` | `/usr/local/libexec/qn10-kernel-autobuild/build-in-vm.sh` |
+| `auto/qn10-kernel-autobuild.service` and `.timer` | `/etc/systemd/system/` |
+
+The service runs as `gitlab-runner`, the user that can start microVMs through
+`fc-helper`. The 4-hour limit is the fourth argument of `fc-helper vm-start`.
+CI jobs cannot set it and keep the default of 1 hour. A build of
+`qcom-next-7.4-rc1-20261116` took 8 minutes.
+
 ## Install
 
-Copy the `linux-image` package to the QN10, then run
-`sudo dpkg -i linux-image-7.4.0-rc1-qn10+_*.deb`.
-For the first install of a kernel version, use `qn10-install-kernel.sh`. It
-also places the device tree and sets the boot entry title.
+Copy the `linux-image` package to the QN10. Then run
+`sudo sh qn10-install-kernel.sh DIR TAG`, where `DIR` holds the package and
+`glymur-asus-ascent-qn10.dtb`. The script reads the kernel version from the
+package and places the device tree. Then it installs the package and makes
+the new boot entry the default. After you install a kernel, set `KERNEL_TAG` in
+`/etc/default/qn10-kernel-autobuild` to its tag.
