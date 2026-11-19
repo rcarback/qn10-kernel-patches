@@ -23,7 +23,6 @@ VCPUS=8
 MEM=16384
 RUNTIME_MIN=240
 IMAGE=debian:trixie
-DTB=glymur-asus-ascent-qn10.dtb
 EXECUTOR=/opt/fc-runner/executor
 LIBEXEC=/usr/local/libexec/qn10-kernel-autobuild
 # shellcheck source=/dev/null
@@ -124,7 +123,6 @@ esac
 echo "$latest" >"$WORK/last-attempt"
 # shellcheck disable=SC2086
 ssh $SSH_OPTS root@"$guest" 'tar -C /root/builds/out -cf - .' | tar -xf - -C "$OUT"
-cp "/usr/lib/linux-image-$running/qcom/$DTB" "$OUT/"
 version=$(cat "$OUT/version")
 echo "== done"
 
@@ -143,9 +141,6 @@ echo "== done"
 	echo "  sudo reboot"
 	echo
 	echo "To go back, pick the previous entry in the boot menu."
-	echo
-	echo "$DTB is a copy from the running kernel $running. Rebuild it if the"
-	echo "device tree bindings changed in $latest."
 	echo
 	summary
 } | mail -s "[$host] kernel $latest built, ready to install" "$MAILTO"

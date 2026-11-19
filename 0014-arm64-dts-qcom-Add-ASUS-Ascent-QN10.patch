@@ -1,0 +1,1612 @@
+From 0a399641c517df876fd88655e86f7a89a31b9641 Mon Sep 17 00:00:00 2001
+From: "Richard T. Carback III" <rick.carback@gmail.com>
+Date: Thu, 19 Nov 2026 14:08:05 +0000
+Subject: [PATCH 14/14] arm64: dts: qcom: Add ASUS Ascent QN10
+
+The ASUS Ascent QN10 is a mini PC built on the Qualcomm Glymur platform
+with a Snapdragon X2 Elite (X2E88100) SoC. Its firmware is derived from
+the Qualcomm CRD reference design. The devicetree is modelled on the QCB
+board file, with the Type-C and multiport USB, PM8010 and SoundWire
+nodes taken from the CRD and the M.2 E-key connector from the Zenbook
+A16.
+
+Booting Linux on a QN10 confirms the USB ports, NVMe in both M.2 slots
+(pcie5, and the Gen5 slot "G5" on pcie3b), the rear HDMI port on mdss_dp3
+with audio, the WCD9378 headset codec on SoundWire, the GPU without a zap
+shader, the firmware RTC through pmic-glink, and the video decoder (iris)
+with its own IOMMU context at EL2. The Wi-Fi, Bluetooth and Ethernet
+nodes follow the DSDT and the Windows device list of a QN10.
+
+UCSI on the Type-C ports does not start yet. The PM8010 on I2C5 does not
+respond and stays disabled. GPIO 184, which the firmware raises to power
+USB 3, is hogged high. Each node notes its source: the DSDT, a Windows
+device dump, a boot test, or the reference board file it comes from. The
+embedded controller and the CDSP are not described.
+---
+ arch/arm64/boot/dts/qcom/Makefile             |    1 +
+ .../boot/dts/qcom/glymur-asus-ascent-qn10.dts | 1561 +++++++++++++++++
+ 2 files changed, 1562 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
+
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 5630ec5df..64b60bd67 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -19,6 +19,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= apq8096-ifc6640.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= eliza-cqs-evk-emmc.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= eliza-cqs-evk-ufs.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= eliza-mtp.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= glymur-asus-ascent-qn10.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= glymur-asus-zenbook-a14-ux3407na.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= glymur-asus-zenbook-a16-ux3607oa.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd.dtb
+diff --git a/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts b/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
+new file mode 100644
+index 000000000..31a18055e
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
+@@ -0,0 +1,1561 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
++ * Copyright (c) 2026 Richard T. Carback III
++ */
++/dts-v1/;
++
++#include "glymur.dtsi"
++
++/* QCB: full CRD PMIC population. The A16 deletes two of these; the QN10 does not. */
++#include "pmcx0102.dtsi"        /* SPMI0: SID-2/3 SPMI1: SID-2/3 */
++#include "pmh0101.dtsi"         /* SPMI0: SID-1                  */
++#include "pmh0110-glymur.dtsi"  /* SPMI0: SID-5/7 SPMI1: SID-5   */
++#include "pmh0104-glymur.dtsi"  /* SPMI0: SID-8/9 SPMI1: SID-11  */
++#include "pmk8850.dtsi"         /* SPMI0: SID-0                  */
++#include "smb2370.dtsi"         /* SPMI2: SID-9/10/11            */
++
++/ {
++	/* DUMP: SMBIOS product "QN10", marketing name Ascent; "asus" prefix as the A16/A14 files */
++	model = "ASUS Ascent QN10";
++	compatible = "asus,ascent-qn10", "qcom,glymur";
++	chassis-type = "desktop";
++
++	aliases {
++		i2c0 = &i2c0;
++		i2c5 = &i2c5;
++		i2c9 = &i2c9;
++		i2c10 = &i2c10;
++		i2c17 = &i2c17;
++
++		serial0 = &uart21;	/* DUMP: SPCR/DBG2 console at 0x894000 (DSDT UARD, UID 0x16) */
++		serial1 = &uart14;	/* DUMP: Bluetooth UART, DSDT UR15 (UID 0x0f), QCA_SHB\UART_H4_CLG */
++	};
++
++	/* QCB */
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++
++	/* QCB */
++	clocks {
++		sleep_clk: sleep-clk {
++			compatible = "fixed-clock";
++			clock-frequency = <32000>;
++			#clock-cells = <0>;
++		};
++
++		xo_board: xo-board {
++			compatible = "fixed-clock";
++			clock-frequency = <38400000>;
++			#clock-cells = <0>;
++		};
++	};
++
++	/*
++	 * The rear HDMI 2.1 port hangs off mdss_dp3 (see &mdss_dp3 below)
++	 * through a DP-to-HDMI bridge that needs no driver: the dump has no
++	 * I2C bridge device, and AUX/EDID reach the monitor directly.
++	 */
++
++	/*
++	 * Three USB4 Type-C ports and no battery. CRD/A16 shape for two
++	 * connectors, HP for the third. DSDT (live): the UCSI device \_SB.UCS0
++	 * names a Parade PS8830 retimer for each of the three ports (RTM0..2);
++	 * on Glymur the firmware drives the retimers, so no DT node exists for
++	 * them (the X1E boards describe theirs on I2C). DUMP: URS0/URS1/URS2 (QCOM0F8B/0F8C/
++	 * 0FED) at 0x0a600000/0x0a800000/0x0a000000 are all started, that is
++	 * usb_0/usb_1/usb_2; UCSI (USBC000, QCOM0F9D), PMIC glink (QCOM0F8E)
++	 * and the USB4 host router (QCOM0C6D, no Linux driver) are started.
++	 * GUESS: the mapping of controller to physical port.
++	 */
++	pmic-glink {
++		compatible = "qcom,glymur-pmic-glink",
++			     "qcom,pmic-glink";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		/*
++		 * BOOT: the RTC is the firmware clock behind pmic_glink
++		 * (rtc-qcom-glink, 7.4). It reads 1980-01-06 plus uptime until
++		 * set; without this flag the driver refuses RTC_SET_TIME.
++		 */
++		allow-set-time;
++
++		/* GUESS: front USB-C, left */
++		connector@0 {
++			compatible = "usb-c-connector";
++			reg = <0>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					pmic_glink_hs_in: endpoint {
++						remote-endpoint = <&usb_0_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++
++					pmic_glink_ss_in: endpoint {
++						remote-endpoint = <&usb_0_qmpphy_out>;
++					};
++				};
++			};
++		};
++
++		/* GUESS: front USB-C, right */
++		connector@1 {
++			compatible = "usb-c-connector";
++			reg = <1>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					pmic_glink_hs_in1: endpoint {
++						remote-endpoint = <&usb_1_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++
++					pmic_glink_ss_in1: endpoint {
++						remote-endpoint = <&usb_1_qmpphy_out>;
++					};
++				};
++			};
++		};
++
++		/* GUESS: rear USB-C */
++		connector@2 {
++			compatible = "usb-c-connector";
++			reg = <2>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++
++					pmic_glink_hs_in2: endpoint {
++						remote-endpoint = <&usb_2_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++
++					pmic_glink_ss_in2: endpoint {
++						remote-endpoint = <&usb_2_qmpphy_out>;
++					};
++				};
++			};
++		};
++	};
++
++	/*
++	 * Not described: the CRD VREG_MISC_3P3 rail (pmh0110_f_e0 gpio6). It feeds
++	 * the CRD touchpad, keyboard and touchscreen, which the QN10 lacks, so the
++	 * earlier always-on copy of it was removed for the RFC.
++	 */
++
++	/* QCB, CRD and A16: identical on every Glymur board. Feeds the Gen4 M.2 slot. */
++	vreg_nvme: regulator-nvme {
++		compatible = "regulator-fixed";
++
++		regulator-name = "VREG_NVME_3P3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++
++		gpio = <&pmh0101_gpios 14 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++
++		pinctrl-0 = <&nvme_reg_en>;
++		pinctrl-names = "default";
++
++		regulator-boot-on;
++	};
++
++	/*
++	 * CRD74: 3.3 V rail of the second M.2 slot (label "G5", pcie3b).
++	 * BOOT: with this rail and the pcie3b nodes below, a WD SN850X in the
++	 * G5 slot enumerates (7.4.0-rc1, 2026-11-16).
++	 */
++	vreg_nvmesec: regulator-nvmesec {
++		compatible = "regulator-fixed";
++
++		regulator-name = "VREG_NVME_SEC_3P3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++
++		gpio = <&pmh0110_f_e1_gpios 14 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++
++		pinctrl-0 = <&nvme_sec_reg_en>;
++		pinctrl-names = "default";
++
++		regulator-boot-on;
++	};
++
++	/* QCB, CRD and A16: identical on every Glymur board */
++	vreg_wcn_3p3: regulator-wcn-3p3 {
++		compatible = "regulator-fixed";
++
++		regulator-name = "VREG_WCN_3P3";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++
++		gpio = <&tlmm 94 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++
++		pinctrl-0 = <&wcn_sw_en>;
++		pinctrl-names = "default";
++
++		regulator-boot-on;
++	};
++
++	/* A16 */
++	reserved-memory {
++		linux,cma {
++			compatible = "shared-dma-pool";
++			size = <0x0 0x10000000>;
++			reusable;
++			linux,cma-default;
++		};
++	};
++
++	/*
++	 * CRD WCD9378 links only. DUMP: the only SoundWire peripheral is
++	 * SDCA MAN_0217 PART_0110 (WCD9378C) at ADR_03 on LID_01 with
++	 * headset render and capture endpoints (ASUS subsystem 1043:8940).
++	 * There are no WSA amplifiers and no DMIC devices, so the WSA and VA
++	 * links of the CRD are left out. DSDT (live): the codec device
++	 * \_SB.ASCD is _STA = 0xF and owns GpioIo 191 (reset) and 32; the
++	 * ACX device \_SB.AUCD owns GpioIo 204 and 205 (purpose unknown).
++	 * The card model string follows the A16 pattern.
++	 */
++	sound {
++		compatible = "qcom,glymur-sndcard";
++		model = "GLYMUR-ASUS-Ascent-QN10";
++
++		audio-routing = "IT 41 Playback", "HPHL_OUT",
++				"IT 41 Playback", "HPHR_OUT",
++				/* CRD: bridge the TX macro input to the WCD capture terminal */
++				"TX SWR_INPUT1", "OT 36 Capture";
++
++		/*
++		 * CRD: swr2 is the bus master and swr1 its lane provider, so
++		 * both DAI links reference &swr2 (cell 0 dout, cell 1 din).
++		 */
++		wcd-playback-dai-link {
++			link-name = "WCD Playback";
++
++			cpu {
++				sound-dai = <&q6apmbedai RX_CODEC_DMA_RX_0>;
++			};
++
++			codec {
++				sound-dai = <&wcd9378c 0>, <&swr2 0>, <&lpass_rxmacro 0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++
++		wcd-capture-dai-link {
++			link-name = "WCD Capture";
++
++			cpu {
++				sound-dai = <&q6apmbedai TX_CODEC_DMA_TX_3>;
++			};
++
++			codec {
++				sound-dai = <&wcd9378c 18>, <&swr2 1>, <&lpass_txmacro 0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++
++		/*
++		 * Rear HDMI (mdss_dp3). The DP audio interface index follows the
++		 * DAI ID, so dp3 needs DISPLAY_PORT_RX_3; the QN10 topology
++		 * (GLYMUR-ASUS-Ascent-QN10-tplg.bin) carries that graph on
++		 * MultiMedia7. BOOT: jack, ELD (2 ch LPCM) and playback.
++		 */
++		displayport-3-dai-link {
++			link-name = "DisplayPort3 Playback";
++
++			codec {
++				sound-dai = <&mdss_dp3>;
++			};
++
++			cpu {
++				sound-dai = <&q6apmbedai DISPLAY_PORT_RX_3>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++	};
++
++	/*
++	 * A16: generic M.2 E-key connector. DUMP: the module is a Foxconn
++	 * NCM820A (FastConnect C7700 / QCC2072, PCI 17cb:1112 subsystem
++	 * 105b:e14f, qcwlancol8480.inf), not the WCN7850 (17cb:1107) that the
++	 * QCB and CRD describe, so the QCB wcn7850-pmu node and its pci17cb,1107
++	 * child are deliberately not used. The Bluetooth side is a UART H4
++	 * device ("FastConnect C7700 NCM820A Bluetooth", qcbluetooth8480.inf)
++	 * on uart14 (QCOM0F6B).
++	 */
++	wlan-connector {
++		compatible = "pcie-m2-e-connector";
++		vpcie3v3-supply = <&vreg_wcn_3p3>;
++		vpcie1v8-supply = <&vreg_l15b_e0_1p8>;
++
++		w-disable1-gpios = <&tlmm 117 GPIO_ACTIVE_LOW>;
++		w-disable2-gpios = <&tlmm 116 GPIO_ACTIVE_LOW>;
++
++		pinctrl-0 = <&wcn_wlan_bt_en>;
++		pinctrl-names = "default";
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@0 {
++				reg = <0>;
++
++				m2_e_pcie_ep: endpoint {
++					remote-endpoint = <&pcie4_port0_ep>;
++				};
++			};
++
++			port@3 {
++				reg = <3>;
++
++				m2_e_uart_ep: endpoint {
++					remote-endpoint = <&uart14_ep>;
++				};
++			};
++		};
++	};
++};
++
++/*
++ * QCB: the RPMh regulator table of the CRD family (B_E0, C_E1, F_E0, F_E1,
++ * H_E0). The A16 table was considered, but the A16 removes the H_E0 PMIC and
++ * substitutes C_E0 rails, which does not fit a CRD-derived firmware. The A16
++ * C_E0 block, once appended here without a consumer, was removed for the
++ * RFC. GUESS: the QN10 keeps the CRD rail plan.
++ */
++&apps_rsc {
++	regulators-0 {
++		compatible = "qcom,pmh0101-rpmh-regulators";
++		qcom,pmic-id = "B_E0";
++
++		vreg_bob1_e0: bob1 {
++			regulator-name = "vreg_bob1_e0";
++			regulator-min-microvolt = <2200000>;
++			regulator-max-microvolt = <4224000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
++		};
++
++		vreg_bob2_e0: bob2 {
++			regulator-name = "vreg_bob2_e0";
++			regulator-min-microvolt = <2540000>;
++			regulator-max-microvolt = <3600000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
++		};
++
++		vreg_l1b_e0_1p8: ldo1 {
++			regulator-name = "vreg_l1b_e0_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2b_e0_2p9: ldo2 {
++			regulator-name = "vreg_l2b_e0_2p9";
++			regulator-min-microvolt = <2904000>;
++			regulator-max-microvolt = <2904000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l7b_e0_2p79: ldo7 {
++			regulator-name = "vreg_l7b_e0_2p79";
++			regulator-min-microvolt = <2790000>;
++			regulator-max-microvolt = <2792000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		/*
++		 * DSDT (live): \_SB.USB3 and \_SB.USB4 vote LDO8_B at 3.072 V,
++		 * \_SB.GPU0 (display) at 3.3 V; A14/A16/Yoga use 3.304 V (eUSB2
++		 * redriver vdd3v3). The QCB/CRD 1.504 V was applied at boot
++		 * (min == max) even with no consumer. BOOT: at 3.304 V the rear
++		 * HDMI (mdss_dp3) trains and shows 3840x2160.
++		 */
++		vreg_l8b_e0_3p3: ldo8 {
++			regulator-name = "vreg_l8b_e0_3p3";
++			regulator-min-microvolt = <3304000>;
++			regulator-max-microvolt = <3304000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l9b_e0_2p7: ldo9 {
++			regulator-name = "vreg_l9b_e0_2p7";
++			regulator-min-microvolt = <2704000>;
++			regulator-max-microvolt = <2704000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l10b_e0_1p8: ldo10 {
++			regulator-name = "vreg_l10b_e0_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l11b_e0_1p2: ldo11 {
++			regulator-name = "vreg_l11b_e0_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l12b_e0_1p14: ldo12 {
++			regulator-name = "vreg_l12b_e0_1p14";
++			regulator-min-microvolt = <1144000>;
++			regulator-max-microvolt = <1144000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l15b_e0_1p8: ldo15 {
++			regulator-name = "vreg_l15b_e0_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			/* A16: reference voltage for many undescribed components */
++			regulator-always-on;
++		};
++
++		vreg_l17b_e0_2p4: ldo17 {
++			regulator-name = "vreg_l17b_e0_2p4";
++			regulator-min-microvolt = <2400000>;
++			regulator-max-microvolt = <2700000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l18b_e0_1p2: ldo18 {
++			regulator-name = "vreg_l18b_e0_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			/* A16: reference voltage for many undescribed components */
++			regulator-always-on;
++		};
++	};
++
++	regulators-1 {
++		compatible = "qcom,pmcx0102-rpmh-regulators";
++		qcom,pmic-id = "C_E1";
++
++		vreg_l1c_e1_0p82: ldo1 {
++			regulator-name = "vreg_l1c_e1_0p82";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2c_e1_1p14: ldo2 {
++			regulator-name = "vreg_l2c_e1_1p14";
++			regulator-min-microvolt = <1144000>;
++			regulator-max-microvolt = <1144000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3c_e1_0p89: ldo3 {
++			regulator-name = "vreg_l3c_e1_0p89";
++			regulator-min-microvolt = <890000>;
++			regulator-max-microvolt = <980000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l4c_e1_0p72: ldo4 {
++			regulator-name = "vreg_l4c_e1_0p72";
++			regulator-min-microvolt = <720000>;
++			regulator-max-microvolt = <720000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-2 {
++		compatible = "qcom,pmh0110-rpmh-regulators";
++		qcom,pmic-id = "F_E0";
++
++		vreg_s7f_e0_1p32: smps7 {
++			regulator-name = "vreg_s7f_e0_1p32";
++			regulator-min-microvolt = <1320000>;
++			regulator-max-microvolt = <1352000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s8f_e0_0p95: smps8 {
++			regulator-name = "vreg_s8f_e0_0p95";
++			regulator-min-microvolt = <952000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s9f_e0_1p9: smps9 {
++			regulator-name = "vreg_s9f_e0_1p9";
++			regulator-min-microvolt = <1900000>;
++			regulator-max-microvolt = <2000000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2f_e0_0p82: ldo2 {
++			regulator-name = "vreg_l2f_e0_0p82";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3f_e0_0p72: ldo3 {
++			regulator-name = "vreg_l3f_e0_0p72";
++			regulator-min-microvolt = <720000>;
++			regulator-max-microvolt = <720000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l4f_e0_1p08: ldo4 {
++			regulator-name = "vreg_l4f_e0_1p08";
++			regulator-min-microvolt = <1080000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-3 {
++		compatible = "qcom,pmh0110-rpmh-regulators";
++		qcom,pmic-id = "F_E1";
++
++		vreg_s7f_e1_0p3: smps7 {
++			regulator-name = "vreg_s7f_e1_0p3";
++			regulator-min-microvolt = <300000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l1f_e1_0p82: ldo1 {
++			regulator-name = "vreg_l1f_e1_0p82";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2f_e1_0p83: ldo2 {
++			regulator-name = "vreg_l2f_e1_0p83";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l4f_e1_1p08: ldo4 {
++			regulator-name = "vreg_l4f_e1_1p08";
++			regulator-min-microvolt = <1080000>;
++			regulator-max-microvolt = <1320000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-4 {
++		compatible = "qcom,pmh0110-rpmh-regulators";
++		qcom,pmic-id = "H_E0";
++
++		vreg_l1h_e0_0p89: ldo1 {
++			regulator-name = "vreg_l1h_e0_0p89";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2h_e0_0p72: ldo2 {
++			regulator-name = "vreg_l2h_e0_0p72";
++			regulator-min-microvolt = <832000>;
++			regulator-max-microvolt = <832000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3h_e0_0p32: ldo3 {
++			regulator-name = "vreg_l3h_e0_0p32";
++			regulator-min-microvolt = <320000>;
++			regulator-max-microvolt = <2000000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l4h_e0_1p2: ldo4 {
++			regulator-name = "vreg_l4h_e0_1p2";
++			regulator-min-microvolt = <1080000>;
++			regulator-max-microvolt = <1320000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++};
++
++/*
++ * A16. DUMP: "Qualcomm Adreno X2-90 GPU", ACPI VEN_QCOM&DEV_0F36 REV_0085.
++ * BOOT: works with no zap-shader node, as on the A16 (the driver leaves
++ * secure mode through SECVID_TRUST_CNTL); Mesa reports Adreno X2-85, and
++ * GL, Vulkan 1.4 (turnip) and a full vkmark run are clean. With a
++ * zap-shader node, TrustZone rejects the PAS init with -EINVAL for both
++ * the generic gen80100_zap.mbn and the QN10's signed qcdxkmsuc8480.mbn.
++ */
++&gpu {
++	status = "okay";
++};
++
++&gmu {
++	status = "okay";
++};
++
++/*
++ * DUMP: ACPI I2C1 (1-based UID, Linux i2c0) is started and carries the I2C
++ * HID device AUHT (ACPI 0B054543, address 0x3a, "I2C HID Device", started).
++ * The same ASUS HID sits on the A16's i2c10. Its interrupt in the DSDT is
++ * GpioInt pin 0x2c0 on GIO0, which is outside the TLMM range and cannot be
++ * mapped, so no child node is given. The bus is enabled for i2cdetect.
++ */
++&i2c0 {
++	clock-frequency = <400000>;
++
++	status = "okay";
++};
++
++/*
++ * DUMP: ACPI I2C6 (Linux i2c5) is started. It carries the PM8010 I2C PMIC
++ * (DSDT PML0 at address 0x08, "Power Management PML0", started; live DSDT
++ * _STA = 0x0B), the same device the CRD describes. DSDT: the PML0 I2C
++ * connection runs at 100 kHz, so the bus is set to 100 kHz (the CRD uses
++ * 400 kHz). The two eUSB2 redrivers are not I2C-enumerated by Windows, but
++ * the USB3 (usb_mp) ACPI device drives their reset lines GPIO 8 and GPIO 184
++ * in _PS0, which are the A16's two PTN3222 reset GPIOs. BOOT: with a
++ * PTN3222 at 0x4f described, usb_mp never probed; with no redriver node the
++ * lane 0 eUSB2 PHY works and every Type-A port enumerates. The redrivers are
++ * left to their power-on defaults and not described.
++ */
++&i2c5 {
++	clock-frequency = <100000>;
++
++	status = "okay";
++
++	/*
++	 * CRD node, DUMP presence. GUESS: reset GPIO 106 and what its LDOs feed
++	 * on the QN10. BOOT: off. The MFD part binds at 0x08, but every read of
++	 * the regulator block at 0x09 fails with -ENXIO (also when re-bound
++	 * minutes after boot), so regulator probe aborts at ldo1. Nothing on
++	 * the QN10 consumes these LDOs (the CRD uses them for cameras).
++	 */
++	pm8010: pmic@8 {
++		compatible = "qcom,pm8010-i2c";
++		reg = <0x8>;
++
++		status = "disabled";
++
++		reset-gpios = <&tlmm 106 GPIO_ACTIVE_LOW>;
++
++		vdd-l1-l2-supply = <&vreg_l6p>;
++		vdd-l3-l4-supply = <&vreg_bob1_e0>;
++		vdd-l5-supply = <&vreg_bob1_e0>;
++		vdd-l6-supply = <&vreg_bob1_e0>;
++		vdd-l7-supply = <&vreg_bob1_e0>;
++
++		pinctrl-0 = <&pm8010_default>;
++		pinctrl-names = "default";
++
++		gpio-controller;
++		#gpio-cells = <2>;
++		gpio-ranges = <&pm8010 0 0 2>;
++
++		#thermal-sensor-cells = <0>;
++
++		regulators {
++			vreg_l1p: ldo1 {
++				regulator-name = "vreg_l1p";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <1200000>;
++			};
++
++			vreg_l2p: ldo2 {
++				regulator-name = "vreg_l2p";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <1200000>;
++			};
++
++			vreg_l3p: ldo3 {
++				regulator-name = "vreg_l3p";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++			};
++
++			vreg_l4p: ldo4 {
++				regulator-name = "vreg_l4p";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++			};
++
++			vreg_l5p: ldo5 {
++				regulator-name = "vreg_l5p";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++			};
++
++			vreg_l6p: ldo6 {
++				regulator-name = "vreg_l6p";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++			};
++
++			vreg_l7p: ldo7 {
++				regulator-name = "vreg_l7p";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++			};
++		};
++	};
++};
++
++/*
++ * QCB: embedded controller at 0x76 on i2c9. DSDT: the EC generic event device
++ * \_SB.ECGE depends on ACPI IC10 (UID 10, Linux i2c9) and the PNP0C0B fans
++ * depend on ECGE, so fan control lives in the EC. DUMP: ACPI0013 (the GED)
++ * and one PNP0C0B fan are started, and ACPI IC10 is started. DSDT (live):
++ * FNTR = 0x0705, so FAN1 is _STA = 0xF and FAN2 is off; the second (SSD)
++ * fan is not exposed to ACPI. The QCB/CRD driver (qcom,hamoa-crd-ec,
++ * CONFIG_EC_QCOM_HAMOA=m in the image kernel) is the only Linux EC driver
++ * for this family, but whether the ASUS EC firmware (0206 in BIOS 0208)
++ * speaks the CRD protocol is unknown, and the DSDT GpioInt pin 768 (0x300)
++ * on GIO0, unchanged in the live table, lies in a virtual range: \_SB.GIO0
++ * declares 250 TLMM pins (GPIC) and bank bases GIC0..GIC3 = 0x100, 0x180,
++ * 0x280, 0x380, and the EC, ASUS HID, BT UART and codec interrupts use
++ * 0x280 + 64*n. No table in the DSDT maps those to TLMM pins. The GIO0 CIPR
++ * table does list TLMM 66 as PDC wake pin 186. No EC node is given, as on
++ * the A16; the earlier GUESS (the QCB node with TLMM 66) was removed for
++ * the RFC.
++ */
++&i2c9 {
++	clock-frequency = <400000>;
++
++	status = "okay";
++
++	/* EC @ 0x76 */
++};
++
++/*
++ * DSDT (live): \_SB.PT7C (_HID ACPI000E, _STA 0xF) reads an external RTC
++ * at address 0x68 on ACPI IC11 (UID 0xB, Linux i2c10) and uses it as the
++ * ACPI time and alarm device. The part name is only "PT7C" (a Pericom
++ * prefix), so no child node is given.
++ */
++&i2c10 {
++	clock-frequency = <400000>;
++
++	status = "okay";
++};
++
++/*
++ * DUMP: ACPI IC18 (UID 0x12, Linux i2c17) is started and carries the I2C
++ * HID device AUHD (ACPI 1025174B, address 0x3d, GpioInt TLMM 71, "I2C HID
++ * Device", started, hidi2c.inf). Its function is not documented. DSDT (live):
++ * the GpioInt is edge, active low, wake capable, with a pull-up; the
++ * level-low trigger follows the A16's hid-over-i2c nodes, the pull-up and
++ * wakeup-source follow the DSDT.
++ */
++&i2c17 {
++	clock-frequency = <400000>;
++
++	status = "okay";
++
++	hid@3d {
++		compatible = "hid-over-i2c";
++		reg = <0x3d>;
++
++		hid-descr-addr = <0x1>;
++		interrupts-extended = <&tlmm 71 IRQ_TYPE_LEVEL_LOW>;
++
++		pinctrl-0 = <&hid_int_b_default>;
++		pinctrl-names = "default";
++
++		wakeup-source;
++	};
++};
++
++/*
++ * QN10: the Windows driver's signed image (qcvss8480.mbn, installed from
++ * the Windows partition). Linux runs at EL2 here, so the firmware needs its
++ * own IOMMU context; stream ID from the CRD. BOOT: H.264 1080p decode is
++ * bit-exact with ffmpeg's software decoder.
++ */
++&iris {
++	firmware-name = "qcom/glymur/ASUSTeK/QN10/qcvss8480.mbn";
++
++	status = "okay";
++
++	video-firmware {
++		iommus = <&apps_smmu 0x19e2 0x0>;
++	};
++};
++
++/* CRD, A16 */
++&mdss {
++	status = "okay";
++};
++
++/* A16: USB-C DP alt mode on the three Type-C ports */
++&mdss_dp0 {
++	status = "okay";
++};
++
++&mdss_dp0_out {
++	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
++};
++
++&mdss_dp1 {
++	status = "okay";
++};
++
++&mdss_dp1_out {
++	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
++};
++
++&mdss_dp2 {
++	status = "okay";
++};
++
++&mdss_dp2_out {
++	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
++};
++
++/*
++ * Rear HDMI. DSDT (live): dptx3 votes LDO1/2/4_F_E1, LDO8_B and LDO18_B.
++ * HPD is GPIO 119 (edp0_hot), as on the A14/A16 eDP. BOOT: with LDO8_B at
++ * 3.3 V a Dell 3840x2160 monitor trains and displays (7.4.0-rc1). Audio:
++ * see displayport-3-dai-link in the sound node.
++ */
++&mdss_dp3 {
++	#sound-dai-cells = <0>;
++
++	pinctrl-0 = <&edp0_hpd_default>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&mdss_dp3_out {
++	data-lanes = <0 1 2 3>;
++	link-frequencies = /bits/ 64 <1620000000 2700000000 5400000000 8100000000>;
++};
++
++&mdss_dp3_phy {
++	vdda-phy-supply = <&vreg_l2f_e1_0p83>;
++	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++/*
++ * QCB: Wi-Fi/BT module on pcie4 (Gen4 x2). DUMP: the NCM820A sits under
++ * "PCI Express Root Complex" ACPI PNP0A08 UID 4, PCI segment 4. DSDT
++ * (live): PRP4 = 1 so \_SB.PCI4 is _STA = 0xF; \_SB.QPPX drives WLAN
++ * enable GpioIo 117 and \_SB.BTH0 drives BT enable GpioIo 116, the
++ * wcn_wlan_bt_en pins below.
++ */
++&pcie4 {
++	pinctrl-0 = <&pcie4_default>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&pcie4_phy {
++	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
++	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++&pcie4_port0 {
++	reset-gpios = <&tlmm 146 GPIO_ACTIVE_LOW>;
++	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>;
++};
++
++/*
++ * Second M.2 slot (label "G5") on pcie3b, PHY pcie3_phy port B. DSDT (live)
++ * PEP data for \_SB.PCI7: gcc_pcie_3b_* clocks and footswitches,
++ * tcsr_pcie_3_clkref_en, the four PHY LDOs below, TLMM GPIO 156; \_SB.QPPX
++ * lists PERST 155 for PCI7. WAKE 157 and the rail follow CRD74. DSDT (live)
++ * leaves PRP7 unset (the dump was taken with the slot empty).
++ * BOOT: WD SN850X (Gen4) enumerates at 16 GT/s x4. The root port is left
++ * at its Gen5 capability for Gen5 drives; the qcom-next NVMe link rate
++ * switcher asked the Gen4 drive for Gen5 and failed with -EAGAIN (fixed
++ * locally by limiting its target to the device's capability).
++ */
++&pcie3_phy {
++	vdda-phy-supply = <&vreg_l3c_e1_0p89>;
++	vdda-pll-supply = <&vreg_l2c_e1_1p14>;
++
++	vdda-refgen0p9-supply = <&vreg_l1c_e1_0p82>;
++	vdda-refgen1p2-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++&pcie3b {
++	vddpe-3v3-supply = <&vreg_nvmesec>;
++
++	pinctrl-0 = <&pcie3b_default>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&pcie3b_port0 {
++	reset-gpios = <&tlmm 155 GPIO_ACTIVE_LOW>;
++	wake-gpios = <&tlmm 157 GPIO_ACTIVE_LOW>;
++};
++
++/* A16: link the root port to the M.2 E-key connector */
++&pcie4_port0_ep {
++	remote-endpoint = <&m2_e_pcie_ep>;
++};
++
++/*
++ * QCB: primary NVMe on pcie5 (Gen4 x4). DUMP: the fitted NVMe (this unit:
++ * PCI 1344:5425, Micron) sits under PNP0A08 UID 5, PCI segment 5. DSDT
++ * (live): PRP5 = 1 so \_SB.PCI5 is _STA = 0xF.
++ * BOOT: the drive (Micron MTFDKBA512QGN, a Gen4 part) enumerates. Without
++ * local patch 0002 the NVMe link rate switcher asks the Gen5-capable root
++ * port for Gen5, fails with -EAGAIN and the system resets; with it the
++ * switcher stops at the device's Gen4 and the link reaches 16 GT/s under
++ * load, so no max-link-speed cap is needed.
++ */
++&pcie5 {
++	vddpe-3v3-supply = <&vreg_nvme>;
++
++	pinctrl-0 = <&pcie5_default>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&pcie5_phy {
++	vdda-phy-supply = <&vreg_l2f_e0_0p82>;
++	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
++
++	status = "okay";
++};
++
++&pcie5_port0 {
++	reset-gpios = <&tlmm 152 GPIO_ACTIVE_LOW>;
++	wake-gpios = <&tlmm 154 GPIO_ACTIVE_LOW>;
++};
++
++/*
++ * DUMP: Realtek RTL8125 2.5 GbE (PCI 10ec:8125 rev 08, subsystem
++ * 1043:8941; the reviews call it RTL8125BP) sits under PNP0A08 UID 6, PCI
++ * segment 6, that is pcie6 (Gen4 x2), the port the QCB and CRD use for
++ * their WWAN M.2 slot. DSDT (live): PRP6 = 1 so \_SB.PCI6 is _STA = 0xF;
++ * the template WWAN device (GpioIo 140, 142, 246) is _STA = 0 and its rail
++ * GPIO 246 is not used here. Pinctrl, PHY supplies and reset/wake GPIOs are
++ * the QCB's. GUESS: no vddpe supply; the QCB WWAN rail (tlmm 246) is
++ * dropped because a soldered NIC is presumed to sit on an always-on 3.3 V
++ * rail. No ethernet@0 child is given: the device enumerates as PCI and
++ * "pci10ec,8125" has no binding.
++ */
++&pcie6 {
++	pinctrl-0 = <&pcie6_default>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&pcie6_phy {
++	vdda-phy-supply = <&vreg_l1c_e1_0p82>;
++	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++&pcie6_port0 {
++	reset-gpios = <&tlmm 149 GPIO_ACTIVE_LOW>;
++	wake-gpios = <&tlmm 151 GPIO_ACTIVE_LOW>;
++};
++
++/* QCB, CRD, A16 */
++&pmh0101_gpios {
++	nvme_reg_en: nvme-reg-en-state {
++		pins = "gpio14";
++		function = "normal";
++		bias-disable;
++	};
++};
++
++/* CRD74: enable of the G5 slot rail */
++&pmh0110_f_e1_gpios {
++	nvme_sec_reg_en: nvme-reg-en-state {
++		pins = "gpio14";
++		function = "normal";
++		bias-disable;
++	};
++};
++
++/*
++ * BOOT: off. The QCB/A16 node reads its offset from the UEFI variable
++ * RTCInfo (GUID 882f8c2b-...); with QSEECOM working the QN10 exposes that
++ * GUID (UsbPort*Retimer) but no RTCInfo, so rtc-pm8xxx fails with -ENOENT.
++ * Time comes from the pmic_glink RTC instead.
++ */
++&pmk8850_rtc {
++	status = "disabled";
++};
++
++/*
++ * Path convention qcom/<soc>/<vendor>/<SMBIOS product>/ as the A16
++ * (qcom/glymur/ASUSTeK/UX3607OA/), the Vivobook S15
++ * (qcom/x1e80100/ASUSTeK/vivobook-s15/) and the Lenovo boards
++ * (qcom/x1e80100/LENOVO/21N1/). DUMP: SMBIOS product is "QN10" and the
++ * board vendor is "ASUSTeK COMPUTER INC.", so the directory is
++ * ASUSTeK/QN10. File names come from the QN10's own DriverStore INFs
++ * (qcsubsys_ext_adsp8480.inf: qcadsp8480.mbn, adsp_dtbs.elf;
++ * qcsubsys_ext_soccp8480.inf: soccp.mbn, soccp_dtb.mbn). The CDSP
++ * subsystem INF names only RCDS.bin, but the QN10's NSP package
++ * (qcnspmcdm8480.inf, ACPI QCOM0FF0) ships qccdsp8480.mbn and
++ * cdsp_dtbs.elf, the names the A16 BSP uses. The blobs live in the QN10's
++ * DriverStore (driverstore/qc*8480*). BOOT: without them the ADSP does not
++ * start, which keeps the LPASS pinctrl, the audio macros and SoundWire in
++ * deferred probe.
++ */
++&remoteproc_adsp {
++	firmware-name = "qcom/glymur/ASUSTeK/QN10/qcadsp8480.mbn",
++			"qcom/glymur/ASUSTeK/QN10/adsp_dtbs.elf";
++
++	status = "okay";
++};
++
++&remoteproc_cdsp {
++	firmware-name = "qcom/glymur/ASUSTeK/QN10/qccdsp8480.mbn",
++			"qcom/glymur/ASUSTeK/QN10/cdsp_dtbs.elf";
++
++	status = "okay";
++};
++
++&remoteproc_soccp {
++	firmware-name = "qcom/glymur/ASUSTeK/QN10/soccp.mbn",
++			"qcom/glymur/ASUSTeK/QN10/soccp_dtb.mbn";
++};
++
++/* CRD (j, k); HP (l). GUESS: the repeater supplies follow the A16 pair. */
++&smb2370_j_e2_eusb2_repeater {
++	vdd18-supply = <&vreg_l15b_e0_1p8>;
++	vdd3-supply = <&vreg_l7b_e0_2p79>;
++};
++
++&smb2370_k_e2_eusb2_repeater {
++	vdd18-supply = <&vreg_l15b_e0_1p8>;
++	vdd3-supply = <&vreg_l7b_e0_2p79>;
++};
++
++/*
++ * HP. BOOT: smb2370.dtsi leaves the third SMB2370 disabled, so the usb_2
++ * eUSB2 PHY waited for its repeater forever. The QN10 has three Type-C
++ * ports, one per repeater.
++ */
++&smb2370_l_e2 {
++	status = "okay";
++};
++
++&smb2370_l_e2_eusb2_repeater {
++	vdd18-supply = <&vreg_l15b_e0_1p8>;
++	vdd3-supply = <&vreg_l7b_e0_2p79>;
++};
++
++/* CRD: data-only lane provider for the WCD9378 compute-mode bus */
++&swr1 {
++	#qcom,swrm-lane-cells = <1>;
++
++	status = "okay";
++};
++
++/*
++ * CRD: SoundWire bus master with the WCD9378C codec. DUMP: SDCA peripheral
++ * MAN_0217 PART_0110 at ADR_03 matches "sdw20217011000" at reg <0 3>.
++ * DSDT (live): \_SB.ASCD owns GpioIo 191, the CRD's codec reset line.
++ * GUESS: the supply rails.
++ */
++&swr2 {
++	qcom,secondary-lanes = <&swr1 0>, <&swr1 1>;
++
++	qcom,ports-block-pack-mode =
++		/bits/ 8 <0xff 0xff 0xff 0xff 0xff 0xff 0x00
++			  0x01 0xff 0xff 0xff 0xff 0xff 0xff>;
++	/*
++	 * BOOT: DP2 (headset mic) uses one-bit words (0x00): the CRD value
++	 * 0x01 (two-bit) failed every other capture. DSDT (live): the WCD9378
++	 * _DSD PDP2 lists mipi-sdw-port-wordlength-configs = {1}.
++	 */
++	qcom,ports-word-length =
++		/bits/ 8 <0xff 0x00 0xff 0xff 0xff 0x01 0x07
++			  0x04 0xff 0xff 0xff 0xff 0xff 0xff>;
++	qcom,ports-offset1 =
++		/bits/ 8 <0x00 0x01 0x02 0x00 0x00 0x00 0x00
++			  0x0b 0x00 0x00 0x00 0x00 0x00 0x00>;
++	qcom,ports-offset2 =
++		/bits/ 8 <0x00 0x00 0x00 0x00 0xff 0x00 0x00
++			  0x0b 0x00 0x00 0x00 0x00 0x00 0x00>;
++	qcom,ports-sinterval-low =
++		/bits/ 8 <0x00 0x01 0x03 0x03 0x00 0x03 0x1f
++			  0x1f 0x00 0x00 0x00 0x00 0x00 0x00>;
++	qcom,ports-hstart =
++		/bits/ 8 <0xff 0xff 0xff 0xff 0xff 0x00 0x00
++			  0x00 0xff 0xff 0xff 0xff 0xff 0xff>;
++	qcom,ports-hstop =
++		/bits/ 8 <0xff 0x0f 0xff 0xff 0xff 0x0f 0x0f
++			  0x0f 0xff 0xff 0xff 0xff 0xff 0xff>;
++	qcom,ports-lane-control =
++		/bits/ 8 <0xff 0x01 0x00 0x01 0xff 0x03 0x02
++			  0x02 0xff 0xff 0xff 0xff 0xff 0xff>;
++	qcom,ports-ch-mask =
++		/bits/ 8 <0xff 0x01 0xff 0xff 0xff 0x03 0x01
++			  0x03 0xff 0xff 0xff 0xff 0xff 0xff>;
++	qcom,ports-block-group-count =
++		/bits/ 8 <0xff 0xff 0xff 0xff 0xff 0xff 0xff
++			  0xff 0xff 0xff 0xff 0xff 0xff 0xff>;
++
++	status = "okay";
++
++	/*
++	 * BOOT: the 7.3 driver binds on the "qcom,wcd9378c" compatible.
++	 * CRD74: the 7.4 driver drops that compatible and binds on
++	 * qcom,sdca-compliant instead. Both are kept so one DTB works with
++	 * either kernel; drop "qcom,wcd9378c" once 7.3 is no longer booted.
++	 */
++	wcd9378c: codec@3,0 {
++		compatible = "qcom,wcd9378c", "sdw20217011000";
++		reg = <0 3>;
++
++		qcom,sdca-compliant;
++
++		pinctrl-0 = <&wcd_default>;
++		pinctrl-names = "default";
++
++		qcom,port-mapping = <2 2 3 4 5 6 7 8>;
++
++		reset-gpios = <&tlmm 191 GPIO_ACTIVE_LOW>;
++
++		vdd-buck-supply = <&vreg_l15b_e0_1p8>;
++		vdd-rxtx-supply = <&vreg_l15b_e0_1p8>;
++		vdd-io-supply = <&vreg_l18b_e0_1p2>;
++		vdd-mic-bias-supply = <&vreg_bob1_e0>;
++
++		#sound-dai-cells = <1>;
++	};
++};
++
++/* QCB */
++&tcsr {
++	vdda-qrefrpt0-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrpt1-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrpt2-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrpt3-0p9-supply = <&vreg_l2h_e0_0p72>;
++	vdda-qrefrpt4-0p9-supply = <&vreg_l2h_e0_0p72>;
++	vdda-qrefrx0-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrx1-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrx2-0p9-supply = <&vreg_l2f_e1_0p83>;
++	vdda-qrefrx4-0p9-supply = <&vreg_l2h_e0_0p72>;
++	vdda-qrefrx5-0p9-supply = <&vreg_l3f_e0_0p72>;
++	vdda-qreftx0-0p9-supply = <&vreg_l3f_e0_0p72>;
++	vdda-qreftx0-1p2-supply = <&vreg_l4h_e0_1p2>;
++	vdda-qreftx1-0p9-supply = <&vreg_l1f_e1_0p82>;
++	vdda-refgen3-0p9-supply = <&vreg_l2f_e0_0p82>;
++	vdda-refgen3-1p2-supply = <&vreg_l4h_e0_1p2>;
++	vdda-refgen4-0p9-supply = <&vreg_l1f_e1_0p82>;
++	vdda-refgen4-1p2-supply = <&vreg_l4f_e1_1p08>;
++};
++
++&tlmm {
++	/*
++	 * BOOT: with the A16 list (4-7, 10-11, 44-47, 65, 90) the system resets
++	 * while the TLMM driver probes, because the QN10 firmware blocks access
++	 * to more pins than that list names. Which extra pins are blocked is
++	 * not known, so this is an allow-list: every pin is reserved except
++	 * the ones this file uses (0-1, 8, 20-21, 36-37, 40-41, 56-59, 68-69,
++	 * 71, 86-87, 94, 106, 116-117, 119, 146-157, 184, 191). Boot-tested with
++	 * this exact list. Using a new pin means removing it from these ranges.
++	 */
++	gpio-reserved-ranges = <2 6>, <9 11>, <22 14>, <38 2>, <42 14>,
++			       <60 8>, <70 1>, <72 14>, <88 6>, <95 11>,
++			       <107 9>, <118 1>, <120 26>, <158 26>,
++			       <185 6>, <192 57>;
++
++	/*
++	 * DSDT (live): \_SB.USB3 (usb_mp) _PS0 drives GPIO 8 (E3RS) and then
++	 * GPIO 184 (E6RS) high, 10 ms apart. The firmware leaves 8 high; 184
++	 * is not driven on Linux. GUESS: E6RS enables the eUSB2 repeater or
++	 * hub supply on that path. The second-tier Genesys hub that Windows
++	 * listed below the first one (05e3:0610 rev 0656) is not board
++	 * hardware: it is the user's KVM. Its -71 failures continue with
++	 * this hog, and it works on a USB-C port (build/TODO.md).
++	 */
++	usb-mp-e6rs-hog {
++		gpio-hog;
++		gpios = <184 GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "USB_MP_E6RS";
++	};
++
++	/* A14/A16: HDMI hot-plug detect */
++	edp0_hpd_default: edp0-hpd-default-state {
++		pins = "gpio119";
++		function = "edp0_hot";
++		bias-disable;
++	};
++
++	/* DUMP: AUHD GpioInt pin 71 */
++	hid_int_b_default: hid-int-b-default-state {
++		pins = "gpio71";
++		function = "gpio";
++		bias-pull-up;
++	};
++
++	/*
++	 * QCB, CRD, A16. DSDT (live): the PCIe plugin \_SB.QPPX lists the
++	 * PERST GPIOs per root complex: PCI3 143, PCI4 146, PCI5 152,
++	 * PCI6 149, PCI7 155, which match the pcie3b/4/5/6 states here.
++	 */
++	pcie3b_default: pcie3b-default-state {
++		clkreq-n-pins {
++			pins = "gpio156";
++			function = "pcie3b_clk";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++
++		perst-n-pins {
++			pins = "gpio155";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		wake-n-pins {
++			pins = "gpio157";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	pcie4_default: pcie4-default-state {
++		clkreq-n-pins {
++			pins = "gpio147";
++			function = "pcie4_clk_req_n";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++
++		perst-n-pins {
++			pins = "gpio146";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		wake-n-pins {
++			pins = "gpio148";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	/* QCB, CRD, A16 */
++	pcie5_default: pcie5-default-state {
++		clkreq-n-pins {
++			pins = "gpio153";
++			function = "pcie5_clk_req_n";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++
++		perst-n-pins {
++			pins = "gpio152";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		wake-n-pins {
++			pins = "gpio154";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	/* QCB, CRD */
++	pcie6_default: pcie6-default-state {
++		clkreq-n-pins {
++			pins = "gpio150";
++			function = "pcie6_clk_req_n";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++
++		perst-n-pins {
++			pins = "gpio149";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		wake-n-pins {
++			pins = "gpio151";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++
++	/* CRD */
++	pm8010_default: pm8010-default-state {
++		reset-n-pins {
++			pins = "gpio106";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++
++	/* CRD */
++	wcd_default: wcd-reset-n-active-state {
++		pins = "gpio191";
++		function = "gpio";
++		drive-strength = <16>;
++		bias-disable;
++		output-low;
++	};
++
++	/* QCB, CRD, A16 */
++	wcn_sw_en: wcn-sw-en-state {
++		pins = "gpio94";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	/* QCB, CRD, A16 */
++	wcn_wlan_bt_en: wcn-wlan-bt-en-state {
++		pins = "gpio116", "gpio117";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++};
++
++/* QCB (status); A16 (graph endpoint to the M.2 connector instead of a wcn7850-bt child) */
++&uart14 {
++	status = "okay";
++
++	port {
++		uart14_ep: endpoint {
++			remote-endpoint = <&m2_e_uart_ep>;
++		};
++	};
++};
++
++/* QCB, CRD, A16. DUMP: the runtime SPCR and DBG2 point at 0x894000 (uart21), so firmware uses it as console. */
++&uart21 {
++	status = "okay";
++};
++
++/*
++ * CRD: USB-C port 0. BOOT: UCSI does not start yet ("PPM init failed"), so
++ * no role is ever set and the Type-C controllers stay idle. Default them
++ * to host, which suits a desktop; UCSI can still switch roles once it
++ * works.
++ */
++&usb_0 {
++	role-switch-default-mode = "host";
++
++	status = "okay";
++};
++
++&usb_0_dwc3_hs {
++	remote-endpoint = <&pmic_glink_hs_in>;
++};
++
++&usb_0_hsphy {
++	vdd-supply = <&vreg_l3f_e0_0p72>;
++	vdda12-supply = <&vreg_l4h_e0_1p2>;
++
++	phys = <&smb2370_j_e2_eusb2_repeater>;
++
++	status = "okay";
++};
++
++&usb_0_qmpphy {
++	vdda-phy-supply = <&vreg_l3f_e0_0p72>;
++	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
++	refgen-supply = <&vreg_l2f_e0_0p82>;
++
++	status = "okay";
++};
++
++&usb_0_qmpphy_out {
++	remote-endpoint = <&pmic_glink_ss_in>;
++};
++
++/* CRD: USB-C port 1 */
++&usb_1 {
++	role-switch-default-mode = "host";
++
++	status = "okay";
++};
++
++&usb_1_dwc3_hs {
++	remote-endpoint = <&pmic_glink_hs_in1>;
++};
++
++&usb_1_hsphy {
++	vdd-supply = <&vreg_l3f_e0_0p72>;
++	vdda12-supply = <&vreg_l4h_e0_1p2>;
++
++	phys = <&smb2370_k_e2_eusb2_repeater>;
++
++	status = "okay";
++};
++
++&usb_1_qmpphy {
++	vdda-phy-supply = <&vreg_l1h_e0_0p89>;
++	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
++	refgen-supply = <&vreg_l2f_e0_0p82>;
++
++	status = "okay";
++};
++
++&usb_1_qmpphy_out {
++	remote-endpoint = <&pmic_glink_ss_in1>;
++};
++
++/*
++ * USB-C port 2. HP (node set, l repeater and rail roles: C_E1 0.9 V phy,
++ * F_E1 1.2 V pll). The CRD does not wire usb_2; the A16 uses its PHY as a
++ * fixed DP output for HDMI. GUESS: on the QN10 it is the third Type-C port.
++ */
++&usb_2 {
++	role-switch-default-mode = "host";
++
++	status = "okay";
++};
++
++&usb_2_dwc3_hs {
++	remote-endpoint = <&pmic_glink_hs_in2>;
++};
++
++&usb_2_hsphy {
++	vdd-supply = <&vreg_l4c_e1_0p72>;
++	vdda12-supply = <&vreg_l4f_e1_1p08>;
++
++	phys = <&smb2370_l_e2_eusb2_repeater>;
++
++	status = "okay";
++};
++
++&usb_2_qmpphy {
++	vdda-phy-supply = <&vreg_l4c_e1_0p72>;
++	vdda-pll-supply = <&vreg_l4f_e1_1p08>;
++	refgen-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++&usb_2_qmpphy_out {
++	remote-endpoint = <&pmic_glink_ss_in2>;
++};
++
++/*
++ * DUMP: the USB2-only controller (DSDT USB4, QCOM0FEF, 0x0a200000) is not
++ * present in the running system; DSDT (live): its _STA is hard-coded to
++ * Zero (its eUSB2 reset would be GpioIo 9). usb_hs stays disabled
++ * (glymur.dtsi default). The front USB 2.0 Type-A port is behind the
++ * usb_mp hubs.
++ */
++
++/*
++ * CRD: multiport controller, two eUSB2+SS lanes. DUMP: DSDT USB3 (QCOM0FEE,
++ * "USB3 eXtensible Host Controller", 0x0a400000) is the only xHCI host
++ * started; its root hub carries a Genesys 05e3:0625 SuperSpeed hub and
++ * 05e3:0610 USB 2.0 hub (rev 9406, one hub chip), with a second 05e3:0610
++ * (rev 0656) hub below, and every USB-A device enumerates there. Its _PS0
++ * raises GPIO 8 and GPIO 184, the two PTN3222 resets. DSDT (live): the root
++ * hub ports MP0 and MP2 (lane 0, USB 2.0 and SuperSpeed) return a
++ * connectable _UPC, MP1 and MP3 (lane 1) return not-connectable, so the
++ * hubs sit on lane 0 and lane 1 is unused even though its redriver is
++ * powered. BOOT: with the lane 1 PHYs disabled the xHCI reset times out
++ * (-110); with all four PHYs on, lane 0 runs at 480 Mbps and 10 Gbps and
++ * every Type-A port works. The lane 1 PHYs use the lane 0 supplies (GUESS).
++ */
++&usb_mp {
++	status = "okay";
++};
++
++&usb_mp_hsphy0 {
++	vdd-supply = <&vreg_l2h_e0_0p72>;
++	vdda12-supply = <&vreg_l4h_e0_1p2>;
++
++	status = "okay";
++};
++
++&usb_mp_hsphy1 {
++	vdd-supply = <&vreg_l2h_e0_0p72>;
++	vdda12-supply = <&vreg_l4h_e0_1p2>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy0 {
++	vdda-phy-supply = <&vreg_l2h_e0_0p72>;
++	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
++	refgen-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy1 {
++	vdda-phy-supply = <&vreg_l2h_e0_0p72>;
++	vdda-pll-supply = <&vreg_l4h_e0_1p2>;
++	refgen-supply = <&vreg_l4f_e1_1p08>;
++
++	status = "okay";
++};
+-- 
+2.47.3
+

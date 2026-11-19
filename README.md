@@ -20,9 +20,12 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 | `0010-rtc-qcom-glink-Fail-a-set-property-the-firmware-refuses.patch` | Built |
 | `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Built, used with `usbcore.ctrl_retries=3` |
 | `0012-usb-hub-Check-the-port-after-a-reset-request-with-a-transaction-error.patch` | Built (KVM keyboard and mouse work) |
+| `0013-dt-bindings-arm-qcom-Add-ASUS-Ascent-QN10.patch` | Built |
+| `0014-arm64-dts-qcom-Add-ASUS-Ascent-QN10.patch` | Built (the DTB matches the one the QN10 boots) |
 
 Each patch is a local test patch. None of them has gone upstream.
-The device tree series has its own repository.
+Patches 0013 and 0014 add the QN10 device tree, so each build compiles
+`glymur-asus-ascent-qn10.dtb` and the kernel package ships it.
 
 ## Workarounds for the keyboard and mouse
 
@@ -66,8 +69,8 @@ the script does these steps:
 2. Runs `build-in-vm.sh` in a `debian:trixie` container. That script applies
    each patch of this repository to the tag with `git apply`. Then it builds
    the packages with the config of the running kernel.
-3. Copies the packages out to `/var/lib/qn10-kernel-autobuild/out`, with the
-   device tree of the running kernel and `qn10-install-kernel.sh`.
+3. Copies the packages, the DTB from that build, and `qn10-install-kernel.sh`
+   out to `/var/lib/qn10-kernel-autobuild/out`.
 4. Mails a ready-to-install report, or the stage that failed with the last 40
    lines of the log.
 

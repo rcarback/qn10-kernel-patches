@@ -80,6 +80,9 @@ make -j"$JOBS" KDEB_PKGVERSION="$version-${REV}qn10" bindeb-pkg
 
 mkdir -p "$B/out"
 mv "$B"/*.deb "$B/out/"
+# Patch 0014 adds the QN10 device tree, so the build compiles a DTB that
+# matches this kernel.
+cp arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dtb "$B/out/"
 cp "$B/patches/qn10-install-kernel.sh" "$B/patches.txt" "$B/out/"
 echo "$version" >"$B/out/version"
 stage ok
