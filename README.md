@@ -57,6 +57,22 @@ tree with `git apply`, then run the script again.
 
 `qn10-native-setup.sh` and `qn10-native-build.sh` build on the QN10 itself.
 
+## Kernel config
+
+Each build starts from the config of the running kernel, then merges
+`qn10.config` and runs `make olddefconfig`. The build fails if an option from
+`qn10.config` is not in the final config. `olddefconfig` drops an option when
+its dependencies are missing, and this check catches that.
+
+`qn10.config` turns on these options:
+
+| Option | Reason |
+|---|---|
+| `CONFIG_DM_CRYPT=m` | Swap encrypted with a random key at each boot |
+| `CONFIG_SECURITY_YAMA=y` | Restricts `ptrace` |
+| `CONFIG_SECURITY_LANDLOCK=y` | Lets programs sandbox themselves |
+| `CONFIG_LSM="landlock,lockdown,yama,apparmor,bpf"` | The packaged config builds AppArmor but leaves it out of this list, so AppArmor does not run |
+
 ## Automatic builds
 
 The `auto/` folder builds each new qcom-next tag on the QN10, in a Firecracker

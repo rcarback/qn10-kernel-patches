@@ -60,7 +60,12 @@ scripts/config --set-str SYSTEM_TRUSTED_KEYS "" \
 	--module R8169
 # R8169: the packaged kernel leaves it off and ships an out-of-tree r8169
 # in a separate package; the in-tree driver supports the QN10's RTL8125BP.
+scripts/kconfig/merge_config.sh -m .config "$HERE/qn10.config" >/dev/null
 make -s olddefconfig
+# olddefconfig drops an option whose dependencies are missing. Fail then.
+grep "^CONFIG_" "$HERE/qn10.config" | while IFS= read -r opt; do
+	grep -qxF "$opt" .config || { echo "config: $opt did not stick" >&2; exit 1; }
+done
 for s in SND_SOC_WCD9378_SDW QCOM_QSEECOM QCOM_QSEECOM_UEFISECAPP RTC_DRV_PM8XXX \
 	PHY_QCOM_EDP DRM_MSM CLK_GLYMUR_DISPCC ATH12K NVME_SPEED_SWITCH HIDRAW R8169; do
 	grep -E "^(# )?CONFIG_${s}[= ]" .config || echo "(CONFIG_$s not present)"

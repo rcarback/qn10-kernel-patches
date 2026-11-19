@@ -74,7 +74,12 @@ stage build
 cd "$B/src"
 cp "$B/config" .config
 scripts/config --set-str LOCALVERSION "-qn10" --disable LOCALVERSION_AUTO
+scripts/kconfig/merge_config.sh -m .config "$B/patches/qn10.config" >/dev/null
 make -s olddefconfig
+# olddefconfig drops an option whose dependencies are missing. Fail then.
+grep "^CONFIG_" "$B/patches/qn10.config" | while IFS= read -r opt; do
+	grep -qxF "$opt" .config || { echo "config: $opt did not stick" >&2; exit 1; }
+done
 version=$(make -s kernelversion)
 make -j"$JOBS" KDEB_PKGVERSION="$version-${REV}qn10" bindeb-pkg
 
