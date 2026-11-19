@@ -1,0 +1,38 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] rtc: qcom-glink: Succeed when SET_REAL_TIME succeeds
+
+qcom_rtc_glink_set_time() sends SET_REAL_TIME, then always sets the time
+property and derives a tick offset from GET_RTC_TICKS. On the ASUS Ascent
+QN10 the firmware accepts SET_REAL_TIME and answers GET_REAL_TIME, but has
+no tick source, so every set returned -EIO after the clock was already set
+and the kernel's NTP RTC sync retried once per second ("no tick source for
+offset").
+
+Return success once SET_REAL_TIME succeeds; reads use GET_REAL_TIME first,
+so the offset is only needed for firmware without it.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+diff --git a/drivers/rtc/rtc-qcom-glink.c b/drivers/rtc/rtc-qcom-glink.c
+index 611f06a3c..61baf5f4f 100644
+--- a/drivers/rtc/rtc-qcom-glink.c
++++ b/drivers/rtc/rtc-qcom-glink.c
+@@ -289,9 +289,16 @@ static int qcom_rtc_glink_set_time(struct qcom_rtc_glink *rtc_glink,
+ 	if (!rtc_glink->allow_set_time)
+ 		return -EOPNOTSUPP;
+ 
++	/*
++	 * Firmware that implements SET_REAL_TIME keeps the wall clock itself
++	 * and answers GET_REAL_TIME, so the tick offset below is not needed.
++	 * Some firmware (ASUS Ascent QN10) has no tick source at all, and
++	 * failing here after a successful set made the RTC unusable.
++	 */
+ 	ret = qcom_rtc_glink_set_real_time(rtc_glink, time);
+-	if (ret)
+-		dev_warn(rtc_glink->dev, "0x69 failed (%d)\n", ret);
++	if (!ret)
++		return 0;
++	dev_warn(rtc_glink->dev, "0x69 failed (%d)\n", ret);
+ 
+ 	ret = qcom_rtc_glink_set_property(rtc_glink, QCOM_RTC_GLINK_TIME, (u32)t);
+ 	if (ret)

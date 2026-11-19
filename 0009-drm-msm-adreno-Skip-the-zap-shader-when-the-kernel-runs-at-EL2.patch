@@ -1,0 +1,58 @@
+From: Rick Carback <rick.carback@gmail.com>
+Subject: [PATCH] drm/msm/adreno: Skip the zap shader when the kernel runs at EL2
+
+With the kernel at EL2 there is no hypervisor to place the PAS metadata
+in an SHM bridge or to bridge the image region before auth-and-reset, so
+a zap shader cannot be authenticated. The SECVID registers are
+accessible to the kernel in that case, so leave secure mode directly
+instead, as the a8xx path already does when the device tree carries no
+zap-shader node, and drop the warning that assumes a broken DT.
+
+On the ASUS Ascent QN10 (Glymur, Adreno X2-85) TrustZone does accept the
+signed zap image once the metadata comes from TZMem, but the SoC resets
+as soon as the CP runs CP_SET_SECURE_MODE. This matches
+Akhil P Oommen's proposed "drm/msm/a6xx: Skip gpu secure fw load in EL2
+mode" (never merged).
+---
+diff --git a/drivers/gpu/drm/msm/adreno/a8xx_gpu.c b/drivers/gpu/drm/msm/adreno/a8xx_gpu.c
+index f892731cd..6261de8d4 100644
+--- a/drivers/gpu/drm/msm/adreno/a8xx_gpu.c
++++ b/drivers/gpu/drm/msm/adreno/a8xx_gpu.c
+@@ -8,6 +8,7 @@
+ #include "a6xx_gpu.h"
+ #include "a6xx_gmu.xml.h"
+ 
++#include <asm/virt.h>
+ #include <linux/bitfield.h>
+ #include <linux/devfreq.h>
+ #include <linux/firmware/qcom/qcom_scm.h>
+@@ -801,7 +802,16 @@ static int hw_init(struct msm_gpu *gpu)
+ 	 * guessed wrong then access to the RBBM_SECVID_TRUST_CNTL register will
+ 	 * be blocked and a permissions violation will soon follow.
+ 	 */
+-	ret = a6xx_zap_shader_init(gpu);
++	/*
++	 * With the kernel at EL2 there is no hypervisor to bridge the image
++	 * region for TrustZone, so a zap shader cannot be authenticated; the
++	 * SECVID registers are accessible to us instead. Leave secure mode
++	 * directly and ignore any zap-shader node.
++	 */
++	if (IS_ENABLED(CONFIG_ARM64) && is_kernel_in_hyp_mode())
++		ret = -ENODEV;
++	else
++		ret = a6xx_zap_shader_init(gpu);
+ 	if (!ret) {
+ 		OUT_PKT7(gpu->rb[0], CP_SET_SECURE_MODE, 1);
+ 		OUT_RING(gpu->rb[0], 0x00000000);
+@@ -816,8 +826,9 @@ static int hw_init(struct msm_gpu *gpu)
+ 		 * have a debug UART to realize the error of their ways...
+ 		 * if you mess this up you are about to crash horribly)
+ 		 */
+-		dev_warn_once(gpu->dev->dev,
+-			"Zap shader not enabled - using SECVID_TRUST_CNTL instead\n");
++		if (!(IS_ENABLED(CONFIG_ARM64) && is_kernel_in_hyp_mode()))
++			dev_warn_once(gpu->dev->dev,
++				"Zap shader not enabled - using SECVID_TRUST_CNTL instead\n");
+ 		gpu_write(gpu, REG_A6XX_RBBM_SECVID_TRUST_CNTL, 0x0);
+ 		ret = 0;
+ 	} else {

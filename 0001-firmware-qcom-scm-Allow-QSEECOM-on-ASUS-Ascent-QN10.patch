@@ -1,0 +1,22 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] firmware: qcom: scm: Allow QSEECOM on ASUS Ascent QN10
+
+Allow the QSEECOM uefisecapp on the ASUS Ascent QN10 so that UEFI
+variables and the pm8xxx RTC offset are available.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+ drivers/firmware/qcom/qcom_scm.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -2225,6 +2225,7 @@
+  + any potential issues with this, only allow validated machines for now.
+  */
+ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
++	{ .compatible = "asus,ascent-qn10" },
+ 	{ .compatible = "asus,vivobook-s15" },
+ 	{ .compatible = "asus,vivobook-s15-x1p4" },
+ 	{ .compatible = "asus,zenbook-a14-ux3407na" },

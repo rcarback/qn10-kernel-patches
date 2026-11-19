@@ -1,0 +1,48 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] ASoC: codecs: wcd9378-sdca: Do not halve the TX host clock
+
+The probe sets HOST_CLK_DIV2_CTL (SCP 0xf0, bank 1 copy) to 1 and
+commits it. With the swr2 DP2 configuration used for the headset
+microphone (sample interval 2, one-bit words) the codec has to run its
+TX path from the undivided host clock: when the active bank holds 1,
+no capture ever delivers data; with 0 in both banks capture works. The
+bank 0 copy (0xe0) is already 0 after reset, so only streams that run
+in bank 1 were affected.
+
+Drop the write and the SCP_COMMIT that went with it, so that both
+banks keep the reset value 0.
+---
+diff --git a/sound/soc/codecs/wcd9378-sdca.c b/sound/soc/codecs/wcd9378-sdca.c
+index 37a666bca..ab03e0b4f 100644
+--- a/sound/soc/codecs/wcd9378-sdca.c
++++ b/sound/soc/codecs/wcd9378-sdca.c
+@@ -862,9 +862,6 @@ static struct sdca_function_data wcd9378_sdca_data = {
+ 	.reset_max_delay  = 25000, /* 25ms — WCD9378 power-on reset completes well within this */
+ };
+ 
+-/* Vendor SCP register: host clock divide-by-2 (bank 1 shadow). */
+-#define WCD9378_SCP_HOST_CLK_DIV2_CTL_B1	0xf0
+-
+ #define WCD9378_ANA_MBHC_MECH_ADDR		0x40180014
+ #define WCD9378_ANA_MBHC_MECH_ENABLE		0xB5
+ #define WCD9378_ANA_MBHC_MECH_DET_TYP		0x20
+@@ -1126,19 +1123,6 @@ int wcd9378_sdca_probe(struct sdw_slave *slave,
+ 		return dev_err_probe(dev, ret,
+ 				     "slave attach timeout: %d\n", ret);
+ 
+-	/*
+-	 * TX PDM clock: bank-1 shadow + SCP_COMMIT.  SCP survives PDE
+-	 * cycles; one-shot before any port is enabled.
+-	 */
+-	ret = sdw_write_no_pm(slave, WCD9378_SCP_HOST_CLK_DIV2_CTL_B1, 0x01);
+-	if (ret)
+-		return dev_err_probe(dev, ret,
+-				     "HOST_CLK_DIV2_CTL_B1: %d\n", ret);
+-
+-	ret = sdw_write_no_pm(slave, SDW_SCP_COMMIT, 0x02);
+-	if (ret)
+-		return dev_err_probe(dev, ret, "SCP_COMMIT: %d\n", ret);
+-
+ 	/* DT has no DisCo enumeration; seed the descriptor here. */
+ 	if (!data->num_functions) {
+ 		data->function[0].type = wcd9378_sdca_desc.type;

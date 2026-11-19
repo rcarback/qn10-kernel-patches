@@ -1,0 +1,64 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] usb: core: Add ctrl_retries to retry control transfers after transaction errors
+
+On the ASUS Ascent QN10, a KVM hub (05e3:0610) behind the internal
+Genesys hub fails about 10% of control transfers with -EPROTO after the
+xHCI controller's own retries. The failures are independent: a second
+try fails about 16% of the time, and three retries leave none in 3000
+requests. Hub status reads and descriptor reads then fail, and the hub
+driver resets or drops the KVM. Bulk and interrupt endpoints already get
+xHCI soft retries; control transfers do not.
+
+Add the usbcore.ctrl_retries parameter (default 0). usb_control_msg()
+retries a request that failed with -EPROTO or -EILSEQ, from the SETUP
+stage, up to ctrl_retries times.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index a738d03c2..e551dc044 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -27,6 +27,18 @@
+ 
+ static void cancel_async_set_config(struct usb_device *udev);
+ 
++/*
++ * A marginal link (for example a hub behind a hub) can fail a control
++ * transfer with a transaction error even after the host controller's own
++ * retries. Bulk and interrupt endpoints get more retries from the HCD
++ * (xHCI soft retry), control transfers do not. Retry the whole request
++ * from the SETUP stage up to ctrl_retries times.
++ */
++static unsigned int ctrl_retries;
++module_param(ctrl_retries, uint, 0644);
++MODULE_PARM_DESC(ctrl_retries,
++		 "retries for a control message that fails with -EPROTO or -EILSEQ (default 0)");
++
+ struct api_context {
+ 	struct completion	done;
+ 	int			status;
+@@ -152,6 +164,7 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
+ 		    __u16 size, int timeout)
+ {
+ 	struct usb_ctrlrequest *dr;
++	unsigned int tries;
+ 	int ret;
+ 
+ 	dr = kmalloc_obj(struct usb_ctrlrequest, GFP_NOIO);
+@@ -164,7 +177,14 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
+ 	dr->wIndex = cpu_to_le16(index);
+ 	dr->wLength = cpu_to_le16(size);
+ 
+-	ret = usb_internal_control_msg(dev, pipe, dr, data, size, timeout);
++	for (tries = 0;; tries++) {
++		ret = usb_internal_control_msg(dev, pipe, dr, data, size, timeout);
++		if ((ret != -EPROTO && ret != -EILSEQ) ||
++		    tries >= READ_ONCE(ctrl_retries))
++			break;
++		dev_dbg(&dev->dev, "control request %02x/%02x failed (%d), retry %u\n",
++			requesttype, request, ret, tries + 1);
++	}
+ 
+ 	/* Linger a bit, prior to the next control message. */
+ 	if (dev->quirks & USB_QUIRK_DELAY_CTRL_MSG)

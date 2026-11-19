@@ -1,0 +1,29 @@
+From: Rick Carback <rick.carback@gmail.com>
+Subject: [PATCH] rtc: qcom-glink: Fail a set-property the firmware refuses
+
+The SET_PROPERTY response carries the firmware status in its property
+word. The driver ignored it, so an alarm the firmware refuses (the QN10
+answers ALARM_ENABLE=1 with 0x202) was reported as armed and rtcwake
+waited for an alarm that never came. Return -EIO instead.
+---
+diff --git a/drivers/rtc/rtc-qcom-glink.c b/drivers/rtc/rtc-qcom-glink.c
+index 61baf5f..f664c91 100644
+--- a/drivers/rtc/rtc-qcom-glink.c
++++ b/drivers/rtc/rtc-qcom-glink.c
+@@ -145,6 +145,16 @@ static int qcom_rtc_glink_set_property(struct qcom_rtc_glink *rtc_glink,
+ 		RTC_GLINK_SET_PROPERTY, property, value);
+ 	mutex_lock(&rtc_glink->lock);
+ 	ret = qcom_rtc_glink_request(rtc_glink, &msg, sizeof(msg));
++	/*
++	 * The SET_PROPERTY response carries the firmware status in the
++	 * property word; anything other than 0 means the write was refused
++	 * (the QN10 firmware answers ALARM_ENABLE=1 with 0x202).
++	 */
++	if (!ret && rtc_glink->resp_valid && rtc_glink->resp_value) {
++		dev_dbg(rtc_glink->dev, "property %u refused: status 0x%x\n",
++			property, rtc_glink->resp_value);
++		ret = -EIO;
++	}
+ 	mutex_unlock(&rtc_glink->lock);
+ 	return ret;
+ }

@@ -1,0 +1,105 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] soundwire: qcom: Copy DPn banks when the master does not switch
+
+A master that borrows data lanes from a lane provider sends the
+SCP_FrameCtrl bank switch as one unicast write per peripheral, because a
+broadcast from the synced pair never completes. The peripherals switch
+banks, but the master itself never does: SWRM_MCP_STATUS reports bank 0
+for good. Whenever the core programs a port into bank 1 and switches to
+it, the master keeps running the stale bank 0 copy of the DPn registers.
+
+On the ASUS Ascent QN10 (Glymur, WCD9378) this happens as soon as the
+bus bank parity flips, after which every headset microphone capture
+fails with -EIO until reboot: the WCD9378 sends on DP2 in bank 1 while
+swr2 port 2 stays disabled in bank 0.
+
+Add a post_bank_switch() callback that, on a master with a lane
+provider, copies the banked DPn registers of the bank the bus has
+switched to into the bank that each IP (the master and the provider)
+reports as active.
+---
+diff --git a/drivers/soundwire/qcom.c b/drivers/soundwire/qcom.c
+index f82a6be05..922dda8e2 100644
+--- a/drivers/soundwire/qcom.c
++++ b/drivers/soundwire/qcom.c
+@@ -1324,6 +1324,72 @@ static int qcom_swrm_port_reg_read(struct qcom_swrm_ctrl *ctrl, u8 port_num,
+ 	return tgt->reg_read(tgt, reg, val);
+ }
+ 
++/* Banked DPn registers, as indexes into reg_layout */
++static const unsigned int qcom_swrm_dpn_bank_regs[] = {
++	SWRM_OFFSET_DP_PORT_CTRL_BANK,
++	SWRM_OFFSET_DP_PORT_CTRL_2_BANK,
++	SWRM_OFFSET_DP_BLOCK_CTRL2_BANK,
++	SWRM_OFFSET_DP_PORT_HCTRL_BANK,
++	SWRM_OFFSET_DP_BLOCK_CTRL3_BANK,
++	SWRM_OFFSET_DP_SAMPLECTRL2_BANK,
++};
++
++static unsigned int qcom_swrm_hw_bank(struct qcom_swrm_ctrl *ctrl)
++{
++	u32 val;
++
++	ctrl->reg_read(ctrl, SWRM_MCP_STATUS, &val);
++
++	return val & SWRM_MCP_STATUS_BANK_NUM_MASK;
++}
++
++/*
++ * A master paired with a lane provider sends the SCP_FrameCtrl bank switch
++ * as unicast writes (see qcom_swrm_xfer_msg()). The peripherals act on
++ * them, but the master itself stays in its current bank, so the DPn
++ * registers that the core has just programmed into the new bank never take
++ * effect on the master side. Copy the DPn registers of the bank that the
++ * bus has switched to into the bank that each master IP still uses.
++ */
++static int qcom_swrm_post_bank_switch(struct sdw_bus *bus)
++{
++	struct qcom_swrm_ctrl *ctrl = to_qcom_sdw(bus);
++	unsigned int new_bank = bus->params.curr_bank;
++	unsigned int ctrl_bank, provider_bank;
++	int port, i, ret;
++
++	if (!ctrl->lane_provider)
++		return 0;
++
++	ctrl_bank = qcom_swrm_hw_bank(ctrl);
++	provider_bank = qcom_swrm_hw_bank(ctrl->lane_provider);
++
++	for (port = 1; port <= ctrl->nports; port++) {
++		for (i = 0; i < ARRAY_SIZE(qcom_swrm_dpn_bank_regs); i++) {
++			u32 offset = ctrl->reg_layout[qcom_swrm_dpn_bank_regs[i]];
++			u32 src = SWRM_DPn_PORT_CTRL_BANK(offset, port, new_bank);
++			struct qcom_swrm_ctrl *tgt;
++			unsigned int hw_bank;
++			u32 dst, val;
++
++			tgt = qcom_swrm_port_target(ctrl, port, &src);
++			hw_bank = tgt == ctrl ? ctrl_bank : provider_bank;
++			if (hw_bank == new_bank)
++				continue;
++
++			dst = src + 0x40 * hw_bank - 0x40 * new_bank;
++			ret = tgt->reg_read(tgt, src, &val);
++			if (ret)
++				return ret;
++			ret = tgt->reg_write(tgt, dst, val);
++			if (ret)
++				return ret;
++		}
++	}
++
++	return 0;
++}
++
+ static int qcom_swrm_port_params(struct sdw_bus *bus,
+ 				 struct sdw_port_params *p_params,
+ 				 unsigned int bank)
+@@ -1501,6 +1567,7 @@ static const struct sdw_master_ops qcom_swrm_ops = {
+ 	.read_prop = qcom_swrm_read_prop,
+ 	.xfer_msg = qcom_swrm_xfer_msg,
+ 	.pre_bank_switch = qcom_swrm_pre_bank_switch,
++	.post_bank_switch = qcom_swrm_post_bank_switch,
+ };
+ 
+ static int qcom_swrm_compute_params(struct sdw_bus *bus, struct sdw_stream_runtime *stream)

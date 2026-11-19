@@ -1,0 +1,69 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] firmware: qcom: scm: Retry PAS init from TZMem when TrustZone rejects DMA memory
+
+qcom_scm_pas_init_image() passes the firmware metadata in plain DMA
+memory unless the caller asked for TZMem, relying on the hypervisor to
+create the SHM bridge for the blob. On the ASUS Ascent QN10 (Glymur)
+TrustZone rejects such metadata with -EINVAL: the iris video firmware
+(PAS 9) and the Adreno zap shader both fail to load, while the ADSP and
+CDSP, which remoteproc loads from TZMem, boot.
+
+When the DMA path fails with -EINVAL and a TZMem pool exists, retry once
+with the metadata in TZMem.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index c9b0a2ae7..972bbba71 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -633,6 +633,32 @@ static int qcom_scm_pas_prep_and_init_image(struct device *dev,
+ 	return ret ? : res.result[0];
+ }
+ 
++static int qcom_scm_pas_init_image_tzmem(struct device *dev, u32 pas_id,
++					  const void *metadata, size_t size,
++					  struct qcom_pas_context *ctx)
++{
++	struct qcom_scm_res res;
++	void *mdata_buf;
++	int ret;
++
++	mdata_buf = qcom_tzmem_alloc(__scm->mempool, size, GFP_KERNEL);
++	if (!mdata_buf)
++		return -ENOMEM;
++
++	memcpy(mdata_buf, metadata, size);
++
++	ret = __qcom_scm_pas_init_image(dev, pas_id,
++					qcom_tzmem_to_phys(mdata_buf), &res);
++	if (ret < 0 || !ctx) {
++		qcom_tzmem_free(mdata_buf);
++	} else {
++		ctx->ptr = mdata_buf;
++		ctx->use_tzmem = true;
++	}
++
++	return ret ? : res.result[0];
++}
++
+ static int qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
+ 				   const void *metadata, size_t size,
+ 				   struct qcom_pas_context *ctx)
+@@ -672,6 +698,16 @@ static int qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
+ 		ctx->size = size;
+ 	}
+ 
++	/*
++	 * Without a hypervisor that creates the SHM bridge for the blob
++	 * (e.g. the ASUS Ascent QN10 on Glymur), TrustZone rejects metadata
++	 * in plain DMA memory with -EINVAL. Retry once from the TZMem pool,
++	 * as callers that set use_tzmem already do.
++	 */
++	if (ret == -EINVAL && __scm->mempool)
++		return qcom_scm_pas_init_image_tzmem(dev, pas_id, metadata,
++						     size, ctx);
++
+ 	return ret ? : res.result[0];
+ }
+ 

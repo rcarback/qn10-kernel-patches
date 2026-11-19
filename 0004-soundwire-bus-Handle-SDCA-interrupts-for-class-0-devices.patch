@@ -1,0 +1,58 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] soundwire: bus: Handle SDCA interrupts for class 0 devices with an IRQ domain
+
+sdw_handle_slave_alerts() reads DP0_INT for the SDCA cascade only when the
+peripheral reports a non-zero class ID. The Qualcomm WCD9378 in compute
+mode reports class 0x00 in its DevId registers but raises SDCA interrupts
+(GE Detected Mode on jack insertion), and its driver sets use_domain_irq.
+
+The cascade was never seen, the nested SDCA IRQ never ran, SDCA_INT1 bit 4
+was never acknowledged, and the bus looped on "Reached MAX_RETRY on alert
+read" about 50 times per second from the first jack insertion on, with
+jack detection never completing.
+
+Also check the SDCA cascade when the driver asked for the SDCA IRQ domain.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+diff --git a/drivers/soundwire/bus.c b/drivers/soundwire/bus.c
+index aeaae5a57..3af35f9be 100644
+--- a/drivers/soundwire/bus.c
++++ b/drivers/soundwire/bus.c
+@@ -1656,6 +1656,18 @@ static int sdw_handle_port_interrupt(struct sdw_slave *slave,
+ 	return ret;
+ }
+ 
++/*
++ * SDCA interrupts cascade through DP0. Devices normally say they are SDCA
++ * devices with a non-zero class ID, but some (the Qualcomm WCD9378 in
++ * compute mode) report class 0 and still use SDCA interrupts. Treat a
++ * driver that asked for the SDCA IRQ domain the same way; for any other
++ * device the cascade bit reads as zero.
++ */
++static bool sdw_slave_has_sdca_irq(struct sdw_slave *slave)
++{
++	return slave->id.class_id || slave->prop.use_domain_irq;
++}
++
+ static int sdw_handle_slave_alerts(struct sdw_slave *slave)
+ {
+ 	struct sdw_slave_intr_status slave_intr;
+@@ -1693,7 +1705,7 @@ static int sdw_handle_slave_alerts(struct sdw_slave *slave)
+ 		goto io_err;
+ 	}
+ 
+-	if (slave->id.class_id) {
++	if (sdw_slave_has_sdca_irq(slave)) {
+ 		ret = sdw_read_no_pm(slave, SDW_DP0_INT);
+ 		if (ret < 0) {
+ 			dev_err(&slave->dev,
+@@ -1833,7 +1845,7 @@ static int sdw_handle_slave_alerts(struct sdw_slave *slave)
+ 			goto io_err;
+ 		}
+ 
+-		if (slave->id.class_id) {
++		if (sdw_slave_has_sdca_irq(slave)) {
+ 			ret = sdw_read_no_pm(slave, SDW_DP0_INT);
+ 			if (ret < 0) {
+ 				dev_err(&slave->dev,

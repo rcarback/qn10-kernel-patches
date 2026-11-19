@@ -1,0 +1,68 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] nvme: speed_switch: Limit the target rate to what both link ends support
+
+nvme_speed_switch_init() takes the maximum rate from the upstream port's
+Link Capabilities only and assumes the link already runs at that rate.
+A Gen4 SSD behind a Gen5 root port is then asked for Gen5, the retrain
+fails with -EAGAIN, and the rollback to the assumed (never reached) Gen5
+rate fails too. On the ASUS Ascent QN10 this reset the system.
+
+Use the lower of the upstream port's and the device's supported rate, and
+start from the rate in the device's Link Status.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+patched /home/carback1/qn10-build/kernel/qcom-next-7.4-rc1-20261116/drivers/nvme/host/speed_switch.c
+diff --git a/drivers/nvme/host/speed_switch.c b/drivers/nvme/host/speed_switch.c
+index 6cacac1ff..907fc9873 100644
+--- a/drivers/nvme/host/speed_switch.c
++++ b/drivers/nvme/host/speed_switch.c
+@@ -57,13 +57,23 @@ static int nvme_bandwidth_index(enum pcie_link_width width)
+  */
+ static int nvme_get_max_link_speed(struct pci_dev *pdev)
+ {
+-	u16 linkcap;
++	u32 linkcap;
+ 
+-	pcie_capability_read_word(pdev, PCI_EXP_LNKCAP, &linkcap);
++	pcie_capability_read_dword(pdev, PCI_EXP_LNKCAP, &linkcap);
+ 
+ 	return linkcap & PCI_EXP_LNKCAP_SLS;
+ }
+ 
++/* Read the link rate the link trained to from the Link Status register. */
++static int nvme_get_cur_link_speed(struct pci_dev *pdev)
++{
++	u16 linksta;
++
++	pcie_capability_read_word(pdev, PCI_EXP_LNKSTA, &linksta);
++
++	return linksta & PCI_EXP_LNKSTA_CLS;
++}
++
+ static enum pci_bus_speed nvme_speed_to_bus_speed(u8 gen)
+ {
+ 	return gen + PCIE_SPEED_2_5GT - 1;
+@@ -341,7 +351,12 @@ void nvme_speed_switch_init(struct nvme_ctrl *ctrl)
+ 
+ 	nvme_speed_switch_params_init(sw);
+ 
+-	max_speed = nvme_get_max_link_speed(pdev->bus->self);
++	/*
++	 * The link can only train to a rate both ends support: a Gen4 device
++	 * behind a Gen5 root port must never be asked for Gen5.
++	 */
++	max_speed = min(nvme_get_max_link_speed(pdev->bus->self),
++			nvme_get_max_link_speed(pdev));
+ 	if (max_speed <= sw->min_speed) {
+ 		dev_err(ctrl->device,
+ 			"invalid link rate range: min=Gen%u, max=Gen%d\n",
+@@ -357,7 +372,7 @@ void nvme_speed_switch_init(struct nvme_ctrl *ctrl)
+ 	}
+ 	nvme_clear_io_stats(sw);
+ 
+-	WRITE_ONCE(sw->cur_speed, sw->max_speed);
++	WRITE_ONCE(sw->cur_speed, nvme_get_cur_link_speed(pdev));
+ 	WRITE_ONCE(sw->threshold, nvme_calc_speed_threshold(sw, pcie_get_width_cap(pdev)));
+ 	if (!READ_ONCE(sw->threshold)) {
+ 		dev_err(ctrl->device, "failed to compute speed switch threshold\n");
