@@ -1,0 +1,14 @@
+[Unit]
+Description=Build the QN10 kernel from a new qcom-next tag in a Firecracker microVM
+Wants=network-online.target
+After=network-online.target postfix.service
+
+[Service]
+Type=oneshot
+# The user that may start microVMs through fc-helper.
+User=gitlab-runner
+Group=gitlab-runner
+ExecStart=/usr/local/sbin/qn10-kernel-autobuild
+StateDirectory=qn10-kernel-autobuild
+# The microVM gets 4 hours. Leave time to start it and copy the packages out.
+TimeoutStartSec=4h30min
