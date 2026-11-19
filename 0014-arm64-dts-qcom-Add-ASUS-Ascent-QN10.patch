@@ -1,14 +1,15 @@
-From 0a399641c517df876fd88655e86f7a89a31b9641 Mon Sep 17 00:00:00 2001
+From 3a172dfb815a259ab22749a6781562982e0bec15 Mon Sep 17 00:00:00 2001
 From: "Richard T. Carback III" <rick.carback@gmail.com>
 Date: Thu, 19 Nov 2026 14:08:05 +0000
 Subject: [PATCH 14/14] arm64: dts: qcom: Add ASUS Ascent QN10
 
 The ASUS Ascent QN10 is a mini PC built on the Qualcomm Glymur platform
 with a Snapdragon X2 Elite (X2E88100) SoC. Its firmware is derived from
-the Qualcomm CRD reference design. The devicetree is modelled on the QCB
-board file, with the Type-C and multiport USB, PM8010 and SoundWire
-nodes taken from the CRD and the M.2 E-key connector from the Zenbook
-A16.
+the Qualcomm CRD reference design. The devicetree is based on
+glymur-qcb.dts from qcom-next commit ae2606baf50f (tag
+qcom-next-7.3-20261030). The Type-C and multiport USB, PM8010 and
+SoundWire nodes come from the CRD, and the M.2 E-key connector from the
+Zenbook A16.
 
 Booting Linux on a QN10 confirms the USB ports, NVMe in both M.2 slots
 (pcie5, and the Gen5 slot "G5" on pcie3b), the rear HDMI port on mdss_dp3
@@ -22,10 +23,12 @@ respond and stays disabled. GPIO 184, which the firmware raises to power
 USB 3, is hogged high. Each node notes its source: the DSDT, a Windows
 device dump, a boot test, or the reference board file it comes from. The
 embedded controller and the CDSP are not described.
+
+Signed-off-by: Richard T. Carback III <rick.carback@gmail.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |    1 +
- .../boot/dts/qcom/glymur-asus-ascent-qn10.dts | 1561 +++++++++++++++++
- 2 files changed, 1562 insertions(+)
+ .../boot/dts/qcom/glymur-asus-ascent-qn10.dts | 1560 +++++++++++++++++
+ 2 files changed, 1561 insertions(+)
  create mode 100644 arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
@@ -42,14 +45,13 @@ index 5630ec5df..64b60bd67 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd.dtb
 diff --git a/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts b/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
 new file mode 100644
-index 000000000..31a18055e
+index 000000000..2a70d7977
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/glymur-asus-ascent-qn10.dts
-@@ -0,0 +1,1561 @@
+@@ -0,0 +1,1560 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
-+ * Copyright (c) 2026 Richard T. Carback III
 + */
 +/dts-v1/;
 +
