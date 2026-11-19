@@ -1,0 +1,42 @@
+From: Richard T. Carback III <rick.carback@gmail.com>
+Subject: [PATCH] usb: hub: Check the port after a reset request with a transaction error
+
+On the ASUS Ascent QN10, a KVM hub (05e3:0610) runs SET_FEATURE(PORT_RESET)
+on a downstream port, but the status stage of that request fails with
+-EPROTO every time. The port status afterwards shows the port enabled and
+C_PORT_RESET set, so the reset ran. hub_port_reset() treats the error as
+a failed reset, never waits for the port, and gives up with "Cannot
+enable". No device behind the KVM enumerates.
+
+When the reset request fails with -EPROTO or -EILSEQ, wait for the port
+as after a successful request. The try counts only when the port comes
+back enabled, so a lost request still fails and the loop tries again.
+
+Local test patch for the QN10 7.4-rc1 kernel build.
+---
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+index 199d3f535..3be196dea 100644
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -3103,11 +3103,20 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
+ 					USB_PORT_FEAT_RESET));
+ 		if (status == -ENODEV) {
+ 			;	/* The hub is gone */
+-		} else if (status) {
++		} else if (status && status != -EPROTO && status != -EILSEQ) {
+ 			dev_err(&port_dev->dev,
+ 					"cannot %sreset (err = %d)\n",
+ 					warm ? "warm " : "", status);
+ 		} else {
++			/*
++			 * Some hubs start the reset but corrupt the status
++			 * stage of the request. Check the port anyway, it
++			 * counts only if it comes back enabled.
++			 */
++			if (status)
++				dev_info(&port_dev->dev,
++					 "%sreset request failed (err = %d), checking the port\n",
++					 warm ? "warm " : "", status);
+ 			status = hub_port_wait_reset(hub, port1, udev, delay,
+ 								warm);
+ 			if (status && status != -ENOTCONN && status != -ENODEV)

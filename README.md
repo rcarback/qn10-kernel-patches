@@ -18,7 +18,8 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 | `0008-firmware-qcom-scm-Retry-PAS-init-from-TZMem.patch` | Built |
 | `0009-drm-msm-adreno-Skip-the-zap-shader-when-the-kernel-runs-at-EL2.patch` | Built, not used (GPU off) |
 | `0010-rtc-qcom-glink-Fail-a-set-property-the-firmware-refuses.patch` | Built |
-| `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Under test, `usbcore.ctrl_retries=3` |
+| `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Built, used with `usbcore.ctrl_retries=3` |
+| `0012-usb-hub-Check-the-port-after-a-reset-request-with-a-transaction-error.patch` | Built (KVM keyboard and mouse work) |
 
 Each patch is a local test patch. None of them has gone upstream.
 The device tree series has its own repository.
@@ -29,7 +30,7 @@ Build in the `qn10-build` OrbStack VM. `REV` sets the Debian package
 revision.
 
 ```sh
-orb -m qn10-build -u root env REV=14 TERM=dumb PAGER=cat sh build-kernel.sh
+orb -m qn10-build -u root env REV=15 TERM=dumb PAGER=cat sh build-kernel.sh
 ```
 
 The script clones the tag and applies `*.patch` only when the source tree
