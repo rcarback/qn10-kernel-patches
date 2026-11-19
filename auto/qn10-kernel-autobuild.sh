@@ -64,7 +64,7 @@ export FC_RUNTIME=$RUNTIME_MIN
 export CUSTOM_ENV_CI_JOB_ID="kernel-${latest##*-}"
 export CUSTOM_ENV_FC_VCPUS=$VCPUS CUSTOM_ENV_FC_MEM=$MEM
 export CUSTOM_ENV_CI_JOB_IMAGE=$IMAGE CUSTOM_ENV_CI_PROJECT_DIR=/root/builds
-export CUSTOM_ENV_TAG=$latest CUSTOM_ENV_REV=${latest##*-} CUSTOM_ENV_JOBS=$VCPUS
+export CUSTOM_ENV_TAG=$latest CUSTOM_ENV_OLD_TAG=$KERNEL_TAG CUSTOM_ENV_REV=${latest##*-} CUSTOM_ENV_JOBS=$VCPUS
 export CUSTOM_ENV_KERNEL_REPO=$KERNEL_REPO CUSTOM_ENV_PATCH_REPO=$PATCH_REPO
 export CUSTOM_ENV_PATCH_BRANCH=$PATCH_BRANCH
 # shellcheck source=/dev/null
@@ -78,6 +78,17 @@ ssh $SSH_OPTS root@"$guest" 'cat >/root/builds/config' <"/boot/config-$running"
 "$EXECUTOR/run.sh" "$LIBEXEC/build-in-vm.sh" build_script || true
 # shellcheck disable=SC2086
 status=$(ssh $SSH_OPTS root@"$guest" 'cat /root/builds/status' 2>/dev/null || echo "start")
+# shellcheck disable=SC2086
+ssh $SSH_OPTS root@"$guest" 'cat /root/builds/changes.txt' >"$WORK/changes.txt" 2>/dev/null ||
+	echo "No change summary: the build stopped before it." >"$WORK/changes.txt"
+
+# The change summary for a mail: the first 300 lines.
+summary(){
+	echo "== Changes (full list: $WORK/changes.txt)"
+	echo
+	head -n 300 "$WORK/changes.txt"
+	[ "$(wc -l <"$WORK/changes.txt")" -le 300 ] || echo "  ... (cut at 300 lines)"
+}
 
 case $status in
 start | setup | clone)
@@ -93,9 +104,18 @@ ok) ;;
 		echo "The automatic build of $latest failed at: $status."
 		echo "Running kernel: $running, built from $KERNEL_TAG."
 		echo
-		echo "Last 40 lines of $LOG:"
+		echo "To try $latest again after a fix (for example, a new patch on"
+		echo "$PATCH_BRANCH), run these commands on $host:"
+		echo
+		echo "  sudo rm $WORK/last-attempt"
+		echo "  sudo systemctl start --no-block qn10-kernel-autobuild.service"
+		echo
+		echo "Full log: $LOG"
+		echo "Last 40 lines:"
 		echo
 		tail -n 40 "$LOG"
+		echo
+		summary
 	} | mail -s "[$host] kernel $latest: $status failed" "$MAILTO"
 	exit 1
 	;;
@@ -115,10 +135,17 @@ echo "== done"
 	echo "Packages in $OUT:"
 	(cd "$OUT" && ls -1 ./*.deb)
 	echo
-	echo "To install and make it the default boot entry:"
+	echo "To install it, make it the default boot entry, record its tag, and"
+	echo "start it, run these commands on $host:"
+	echo
 	echo "  sudo sh $OUT/qn10-install-kernel.sh $OUT $latest"
-	echo "Then set KERNEL_TAG=$latest in $CONF and reboot."
+	echo "  sudo sed -i 's/^KERNEL_TAG=.*/KERNEL_TAG=$latest/' $CONF"
+	echo "  sudo reboot"
+	echo
+	echo "To go back, pick the previous entry in the boot menu."
 	echo
 	echo "$DTB is a copy from the running kernel $running. Rebuild it if the"
 	echo "device tree bindings changed in $latest."
+	echo
+	summary
 } | mail -s "[$host] kernel $latest built, ready to install" "$MAILTO"
