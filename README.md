@@ -54,9 +54,43 @@ tree with `git apply`, then run the script again.
 
 `qn10-native-setup.sh` and `qn10-native-build.sh` build on the QN10 itself.
 
+## Automatic builds
+
+The `auto/` folder builds each new qcom-next tag on the QN10, in a Firecracker
+microVM of the CI runner. A timer runs `qn10-kernel-autobuild.sh` every night.
+If a tag is newer than `KERNEL_TAG` in `/etc/default/qn10-kernel-autobuild`,
+the script does these steps:
+
+1. Starts a microVM with 8 vCPUs, 16 GiB, and a limit of 4 hours, through the
+   runner's executor scripts.
+2. Runs `build-in-vm.sh` in a `debian:trixie` container. That script applies
+   each patch of this repository to the tag with `git apply`. Then it builds
+   the packages with the config of the running kernel.
+3. Copies the packages out to `/var/lib/qn10-kernel-autobuild/out`, with the
+   device tree of the running kernel and `qn10-install-kernel.sh`.
+4. Mails a ready-to-install report, or the stage that failed with the last 40
+   lines of the log.
+
+The job tries each tag once. A stop during setup or clone counts as a network
+fault, so the next run tries again without a mail. The job never installs a
+kernel.
+
+| File | Installs to |
+|------|-------------|
+| `auto/qn10-kernel-autobuild.sh` | `/usr/local/sbin/qn10-kernel-autobuild` |
+| `auto/build-in-vm.sh` | `/usr/local/libexec/qn10-kernel-autobuild/build-in-vm.sh` |
+| `auto/qn10-kernel-autobuild.service` and `.timer` | `/etc/systemd/system/` |
+
+The service runs as `gitlab-runner`, the user that can start microVMs through
+`fc-helper`. The 4-hour limit is the fourth argument of `fc-helper vm-start`.
+CI jobs cannot set it and keep the default of 1 hour. A build of
+`qcom-next-7.4-rc1-20261116` took 8 minutes.
+
 ## Install
 
-Copy the `linux-image` package to the QN10, then run
-`sudo dpkg -i linux-image-7.4.0-rc1-qn10+_*.deb`.
-For the first install of a kernel version, use `qn10-install-kernel.sh`. It
-also places the device tree and sets the boot entry title.
+Copy the `linux-image` package to the QN10. Then run
+`sudo sh qn10-install-kernel.sh DIR TAG`, where `DIR` holds the package and
+`glymur-asus-ascent-qn10.dtb`. The script reads the kernel version from the
+package and places the device tree. Then it installs the package and makes
+the new boot entry the default. After you install a kernel, set `KERNEL_TAG` in
+`/etc/default/qn10-kernel-autobuild` to its tag.
