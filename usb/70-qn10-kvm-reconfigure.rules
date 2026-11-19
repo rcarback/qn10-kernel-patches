@@ -1,0 +1,6 @@
+# The KVM's hub (Genesys 05e3:0610 rev 06.56) keeps the state the other
+# computer left in it across a KVM switch. After a switch from Windows, the
+# full-speed devices behind it (the keyboard) time out on every request until
+# the hub is configured again. Re-authorize the hub once when it arrives,
+# before its ports enumerate. Re-authorizing does not send a new "add" event.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="05e3", ATTR{idProduct}=="0610", ATTR{bcdDevice}=="0656", RUN+="/bin/sh -c 'echo 0 >/sys%p/authorized && echo 1 >/sys%p/authorized'"

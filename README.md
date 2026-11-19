@@ -24,6 +24,21 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 Each patch is a local test patch. None of them has gone upstream.
 The device tree series has its own repository.
 
+## Workarounds for the keyboard and mouse
+
+The `usb/` folder holds two workarounds that run on the QN10. Patches 0011
+and 0012 handle the errors that remain.
+
+| File | Installs to | Purpose |
+|------|-------------|---------|
+| `qn10-usb3-fallback.sh` | `/usr/local/sbin/qn10-usb3-fallback` | Moves a USB-A port to USB 2 when its USB 3 link stays in Polling, and turns USB 3 back on when the port has been empty for 20 seconds |
+| `qn10-usb3-fallback.service` | `/etc/systemd/system/` | Runs the fallback script at boot |
+| `70-qn10-kvm-reconfigure.rules` | `/etc/udev/rules.d/` | Configures the KVM hub (Genesys 05e3:0610 rev 06.56) again when it arrives, so the keyboard behind it works after a switch from Windows |
+
+Connect the KVM to a USB-C port. Through the internal USB-A hub, about 13%
+of control transfers to the KVM fail. A test of 300 transfers through a USB-C
+port had 0 failures.
+
 ## Build
 
 Build in the `qn10-build` OrbStack VM. `REV` sets the Debian package
