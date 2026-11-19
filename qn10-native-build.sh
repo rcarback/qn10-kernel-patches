@@ -10,7 +10,12 @@ K=$HOME/kernel
 cd "$K/src"
 cp "/boot/config-$(uname -r)" .config
 scripts/config --set-str LOCALVERSION "-qn10" --disable LOCALVERSION_AUTO
+scripts/kconfig/merge_config.sh -m .config "$K/patches/qn10.config" >/dev/null
 make -s olddefconfig
+# olddefconfig drops an option whose dependencies are missing. Fail then.
+grep "^CONFIG_" "$K/patches/qn10.config" | while IFS= read -r opt; do
+	grep -qxF "$opt" .config || { echo "config: $opt did not stick" >&2; exit 1; }
+done
 export CCACHE_DIR="$K/ccache"
 make -j"$(nproc)" CC="ccache gcc" KDEB_PKGVERSION="$(make -s kernelversion)-${REV}qn10" bindeb-pkg
 ls -l "$K"/linux-image-*-"${REV}"qn10_arm64.deb
