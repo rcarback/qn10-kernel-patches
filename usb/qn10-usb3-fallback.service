@@ -1,0 +1,10 @@
+[Unit]
+Description=QN10: fall back to USB 2 when a USB-A SuperSpeed link never trains
+After=systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/qn10-usb3-fallback
+
+[Install]
+WantedBy=multi-user.target

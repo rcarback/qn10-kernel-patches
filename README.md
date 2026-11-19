@@ -16,12 +16,28 @@ qualcomm-linux/kernel tag `qcom-next-7.4-rc1-20261116`.
 | `0006-soundwire-qcom-Copy-DPn-banks-when-the-master-does-not-switch.patch` | Built |
 | `0007-ASoC-codecs-wcd9378-sdca-Do-not-halve-the-TX-host-clock.patch` | Built |
 | `0008-firmware-qcom-scm-Retry-PAS-init-from-TZMem.patch` | Built |
-| `0009-drm-msm-adreno-Skip-the-zap-shader-when-the-kernel-runs-at-EL2.patch` | Built, not used (GPU off) |
+| `0009-drm-msm-adreno-Skip-the-zap-shader-when-the-kernel-runs-at-EL2.patch` | Built (the GPU runs without the zap shader) |
 | `0010-rtc-qcom-glink-Fail-a-set-property-the-firmware-refuses.patch` | Built |
-| `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Under test, `usbcore.ctrl_retries=3` |
+| `0011-usb-core-Add-ctrl_retries-for-control-transfer-errors.patch` | Built, used with `usbcore.ctrl_retries=3` |
+| `0012-usb-hub-Check-the-port-after-a-reset-request-with-a-transaction-error.patch` | Built (KVM keyboard and mouse work) |
 
 Each patch is a local test patch. None of them has gone upstream.
 The device tree series has its own repository.
+
+## Workarounds for the keyboard and mouse
+
+The `usb/` folder holds two workarounds that run on the QN10. Patches 0011
+and 0012 handle the errors that remain.
+
+| File | Installs to | Purpose |
+|------|-------------|---------|
+| `qn10-usb3-fallback.sh` | `/usr/local/sbin/qn10-usb3-fallback` | Moves a USB-A port to USB 2 when its USB 3 link stays in Polling, and turns USB 3 back on when the port has been empty for 20 seconds |
+| `qn10-usb3-fallback.service` | `/etc/systemd/system/` | Runs the fallback script at boot |
+| `70-qn10-kvm-reconfigure.rules` | `/etc/udev/rules.d/` | Configures the KVM hub (Genesys 05e3:0610 rev 06.56) again when it arrives, so the keyboard behind it works after a switch from Windows |
+
+Connect the KVM to a USB-C port. Through the internal USB-A hub, about 13%
+of control transfers to the KVM fail. A test of 300 transfers through a USB-C
+port had 0 failures.
 
 ## Build
 
@@ -29,7 +45,7 @@ Build in the `qn10-build` OrbStack VM. `REV` sets the Debian package
 revision.
 
 ```sh
-orb -m qn10-build -u root env REV=14 TERM=dumb PAGER=cat sh build-kernel.sh
+orb -m qn10-build -u root env REV=15 TERM=dumb PAGER=cat sh build-kernel.sh
 ```
 
 The script clones the tag and applies `*.patch` only when the source tree
