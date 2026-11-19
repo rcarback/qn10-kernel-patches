@@ -84,7 +84,7 @@ the script does these steps:
    runner's executor scripts.
 2. Runs `build-in-vm.sh` in a `debian:trixie` container. That script applies
    each patch of this repository to the tag with `git apply`. Then it builds
-   the packages with the config of the running kernel.
+   the packages with the config of the running kernel and `qn10.config`.
 3. Copies the packages, the DTB from that build, and `qn10-install-kernel.sh`
    out to `/var/lib/qn10-kernel-autobuild/out`.
 4. Mails a ready-to-install report, or the stage that failed with the last 40
@@ -93,6 +93,16 @@ the script does these steps:
 The job tries each tag once. A stop during setup or clone counts as a network
 fault, so the next run tries again without a mail. The job never installs a
 kernel.
+
+To build the tag of the running kernel again, for example after a change to
+`qn10.config`, set `REBUILD=1`:
+
+```sh
+sudo -u gitlab-runner env REBUILD=1 /usr/local/sbin/qn10-kernel-autobuild
+```
+
+The package revision then gets a time suffix, such as `20261116.202611192045`,
+so the new packages sort after the installed ones.
 
 | File | Installs to |
 |------|-------------|

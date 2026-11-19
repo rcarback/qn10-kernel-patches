@@ -11,10 +11,16 @@
 #   KERNEL_TAG    qcom-next tag of the running kernel (set it after each install)
 #   MAILTO        recipient (default root)
 #   PATCH_BRANCH  branch of the patch repository (default main)
+#
+# REBUILD=1 in the environment builds the tag of the running kernel again, for
+# example after a change to qn10.config. The package revision then gets a time
+# suffix, so that it sorts after the installed package:
+#   sudo -u gitlab-runner env REBUILD=1 /usr/local/sbin/qn10-kernel-autobuild
 set -euo pipefail
 
 CONF=/etc/default/qn10-kernel-autobuild
 KERNEL_TAG=
+REBUILD=${REBUILD:-0}
 MAILTO=root
 KERNEL_REPO=https://github.com/qualcomm-linux/kernel.git
 PATCH_REPO=https://github.com/rcarback/qn10-kernel-patches.git
@@ -36,17 +42,24 @@ running=$(uname -r)
 
 [ -n "$KERNEL_TAG" ] || { echo "KERNEL_TAG is not set in $CONF" >&2; exit 2; }
 
-# Tags end in their date: qcom-next-<version>-<YYYYMMDD>.
-latest=$(git ls-remote --tags --refs "$KERNEL_REPO" 'qcom-next-*' |
-	sed -n 's#.*refs/tags/##p' | awk -F- '{print $NF, $0}' | sort -n | tail -1 | cut -d' ' -f2)
-[ -n "$latest" ] || { echo "cannot list the tags of $KERNEL_REPO" >&2; exit 1; }
-if [ "${latest##*-}" -le "${KERNEL_TAG##*-}" ]; then
-	echo "running kernel is from $KERNEL_TAG, the newest tag is $latest: nothing to build"
-	exit 0
-fi
-if [ "$(cat "$WORK/last-attempt" 2>/dev/null)" = "$latest" ]; then
-	echo "$latest was already tried, see $LOG"
-	exit 0
+if [ "$REBUILD" = 1 ]; then
+	latest=$KERNEL_TAG
+	# 20261116.202611192045 sorts after 20261116 in dpkg.
+	rev=${latest##*-}.$(date -u +%Y%m%d%H%M)
+else
+	# Tags end in their date: qcom-next-<version>-<YYYYMMDD>.
+	latest=$(git ls-remote --tags --refs "$KERNEL_REPO" 'qcom-next-*' |
+		sed -n 's#.*refs/tags/##p' | awk -F- '{print $NF, $0}' | sort -n | tail -1 | cut -d' ' -f2)
+	[ -n "$latest" ] || { echo "cannot list the tags of $KERNEL_REPO" >&2; exit 1; }
+	if [ "${latest##*-}" -le "${KERNEL_TAG##*-}" ]; then
+		echo "running kernel is from $KERNEL_TAG, the newest tag is $latest: nothing to build"
+		exit 0
+	fi
+	if [ "$(cat "$WORK/last-attempt" 2>/dev/null)" = "$latest" ]; then
+		echo "$latest was already tried, see $LOG"
+		exit 0
+	fi
+	rev=${latest##*-}
 fi
 
 rm -rf "$OUT"
@@ -60,10 +73,10 @@ echo "== $(date -u '+%F %T') build $latest on $host (running $running)"
 # exports them into the build script without the prefix. FC_RUNTIME has no
 # prefix: only a host-side caller can set it, never a CI job.
 export FC_RUNTIME=$RUNTIME_MIN
-export CUSTOM_ENV_CI_JOB_ID="kernel-${latest##*-}"
+export CUSTOM_ENV_CI_JOB_ID="kernel-$rev"
 export CUSTOM_ENV_FC_VCPUS=$VCPUS CUSTOM_ENV_FC_MEM=$MEM
 export CUSTOM_ENV_CI_JOB_IMAGE=$IMAGE CUSTOM_ENV_CI_PROJECT_DIR=/root/builds
-export CUSTOM_ENV_TAG=$latest CUSTOM_ENV_OLD_TAG=$KERNEL_TAG CUSTOM_ENV_REV=${latest##*-} CUSTOM_ENV_JOBS=$VCPUS
+export CUSTOM_ENV_TAG=$latest CUSTOM_ENV_OLD_TAG=$KERNEL_TAG CUSTOM_ENV_REV=$rev CUSTOM_ENV_JOBS=$VCPUS
 export CUSTOM_ENV_KERNEL_REPO=$KERNEL_REPO CUSTOM_ENV_PATCH_REPO=$PATCH_REPO
 export CUSTOM_ENV_PATCH_BRANCH=$PATCH_BRANCH
 # shellcheck source=/dev/null
